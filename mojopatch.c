@@ -179,6 +179,10 @@ static unsigned char iobuf[512 * 1024];
 static int serialize(SerialArchive *ar, void *val, size_t size)
 {
     int rc;
+
+    if (size == 0)
+        return(1);
+
     if (ar->reading)
         rc = fread(val, size, 1, ar->io);
     else
@@ -197,6 +201,9 @@ static int serialize_static_string(SerialArchive *ar, char *val)
 {
     size_t len;
 
+    if (!ar->reading)
+        len = strlen(val);
+
     if (!SERIALIZE(ar, len))
         return(0);
 
@@ -207,7 +214,7 @@ static int serialize_static_string(SerialArchive *ar, char *val)
     } /* if */
 
     val[len] = 0;
-    return(serialize(ar, &val, len));
+    return(serialize(ar, val, len));
 } /* serialize_static_string */
 
 
@@ -278,6 +285,9 @@ static int serialize_header(SerialArchive *ar, PatchHeader *h, int *legitEOF)
     int dummy = 0;
     if (legitEOF == NULL)
         legitEOF = &dummy;
+
+    assert(sizeof (h->signature) == sizeof (MOJOPATCHSIG));
+    memcpy(h->signature, MOJOPATCHSIG, sizeof (h->signature));
 
     rc = SERIALIZE(ar, h->signature);
     *legitEOF = ( (feof(ar->io)) && (!ferror(ar->io)) );
@@ -402,6 +412,7 @@ static int handle_add_op(SerialArchive *ar, OperationType op, void *data);
 static int handle_adddir_op(SerialArchive *ar, OperationType op, void *data);
 static int handle_patch_op(SerialArchive *ar, OperationType op, void *data);
 static int handle_replace_op(SerialArchive *ar, OperationType op, void *data);
+static int handle_done_op(SerialArchive *ar, OperationType op, void *data);
 
 typedef int (*OpHandlers)(SerialArchive *ar, OperationType op, void *data);
 static OpHandlers operation_handlers[OPERATION_TOTAL] =
@@ -413,6 +424,7 @@ static OpHandlers operation_handlers[OPERATION_TOTAL] =
     handle_adddir_op,
     handle_patch_op,
     handle_replace_op,
+    handle_done_op,
 };
 
 
@@ -428,7 +440,7 @@ static int serialize_operation(SerialArchive *ar, Operations *ops)
         return(0);
     } /* if */
 
-    return(serializers[ops->operation](ar, &ops));
+    return(serializers[ops->operation](ar, ops));
 } /* serialize_operation */
 
 
@@ -807,7 +819,7 @@ static const char *final_path_element(const char *fname)
 /* put a DELETE operation in the mojopatch file... */
 static int put_delete(SerialArchive *ar, const char *fname)
 {
-    DeleteOperation del;
+    Operations ops;
 
     _current_operation("DELETE %s", final_path_element(fname));
     _log("DELETE %s", fname);
@@ -818,9 +830,9 @@ static int put_delete(SerialArchive *ar, const char *fname)
     if (!confirm())
         return(PATCHSUCCESS);
 
-    del.operation = OPERATION_DELETE;
-    make_static_string(del.fname, fname);
-    return(serialize_delete_op(ar, &del));
+    ops.operation = OPERATION_DELETE;
+    make_static_string(ops.del.fname, fname);
+    return(serialize_operation(ar, &ops));
 } /* put_delete */
 
 
@@ -828,7 +840,7 @@ static int put_delete(SerialArchive *ar, const char *fname)
 static int handle_delete_op(SerialArchive *ar, OperationType op, void *d)
 {
     DeleteOperation *del = (DeleteOperation *) d;
-    assert(op == OPERATION_DELETEDIRECTORY);
+    assert(op == OPERATION_DELETE);
 
     _current_operation("DELETE %s", final_path_element(del->fname));
     _log("DELETE %s", del->fname);
@@ -865,7 +877,7 @@ static int handle_delete_op(SerialArchive *ar, OperationType op, void *d)
 /* put a DELETEDIRECTORY operation in the mojopatch file... */
 static int put_delete_dir(SerialArchive *ar, const char *fname)
 {
-    DeleteDirOperation deldir;
+    Operations ops;
 
     _current_operation("DELETEDIRECTORY %s", final_path_element(fname));
     _log("DELETEDIRECTORY %s", fname);
@@ -876,9 +888,9 @@ static int put_delete_dir(SerialArchive *ar, const char *fname)
     if (in_ignore_list(fname))
         return(PATCHSUCCESS);
 
-    deldir.operation = OPERATION_DELETEDIRECTORY;
-    make_static_string(deldir.fname, fname);
-    return(serialize_delete_op(ar, &deldir));
+    ops.operation = OPERATION_DELETEDIRECTORY;
+    make_static_string(ops.deldir.fname, fname);
+    return(serialize_operation(ar, &ops));
 } /* put_delete_dir */
 
 
@@ -961,7 +973,7 @@ static int handle_deldir_op(SerialArchive *ar, OperationType op, void *d)
 /* put an ADD operation in the mojopatch file... */
 static int put_add(SerialArchive *ar, const char *fname)
 {
-    AddOperation add;
+    Operations ops;
     FILE *in = NULL;
     struct stat statbuf;
     int retval = PATCHERROR;
@@ -989,18 +1001,18 @@ static int put_add(SerialArchive *ar, const char *fname)
         return(PATCHERROR);
     } /* if */
 
-    if (md5sum(in, add.md5, debug) == PATCHERROR)
+    if (md5sum(in, ops.add.md5, debug) == PATCHERROR)
         goto put_add_done;
 
-    add.operation = (replace) ? OPERATION_REPLACE : OPERATION_ADD;
-    add.fsize = statbuf.st_size;
-    add.mode = (mode_t) statbuf.st_mode;
-    make_static_string(add.fname, fname);
+    ops.operation = (replace) ? OPERATION_REPLACE : OPERATION_ADD;
+    ops.add.fsize = statbuf.st_size;
+    ops.add.mode = (mode_t) statbuf.st_mode;
+    make_static_string(ops.add.fname, fname);
 
-    if (!serialize_add_op(ar, &add))
+    if (!serialize_operation(ar, &ops))
         goto put_add_done;
 
-    if (!write_between_files(in, ar->io, add.fsize))
+    if (!write_between_files(in, ar->io, ops.add.fsize))
         goto put_add_done;
 
     assert(fgetc(in) == EOF);
@@ -1128,7 +1140,7 @@ static int put_add_for_wholedir(SerialArchive *ar, const char *base);
 /* put an ADDDIRECTORY operation in the mojopatch file... */
 static int put_add_dir(SerialArchive *ar, const char *fname)
 {
-    AddDirOperation adddir;
+    Operations ops;
     struct stat statbuf;
 
     _current_operation("ADDDIRECTORY %s", final_path_element(fname));
@@ -1146,11 +1158,11 @@ static int put_add_dir(SerialArchive *ar, const char *fname)
         return(PATCHERROR);
     } /* if */
 
-    adddir.operation = OPERATION_ADDDIRECTORY;
-    adddir.mode = (mode_t) statbuf.st_mode;
-    make_static_string(adddir.fname, fname);
+    ops.operation = OPERATION_ADDDIRECTORY;
+    ops.adddir.mode = (mode_t) statbuf.st_mode;
+    make_static_string(ops.adddir.fname, fname);
 
-    if (!serialize_adddir_op(ar, &adddir))
+    if (!serialize_operation(ar, &ops))
         return(PATCHERROR);
 
     /* must add contents of dir after dir itself... */
@@ -1230,6 +1242,18 @@ static int put_add_for_wholedir(SerialArchive *ar, const char *base)
     return(PATCHSUCCESS);
 } /* put_add_for_wholedir */
 
+/* put a DONE operation in the mojopatch file... */
+static int put_done(SerialArchive *ar)
+{
+    Operations ops;
+
+    _current_operation("DONE");
+    _log("DONE");
+
+    ops.operation = OPERATION_DONE;
+    return(serialize_operation(ar, &ops));
+} /* put_done */
+
 
 static int md5sums_match(const char *fname1, const char *fname2,
                          md5_byte_t *md5_1, md5_byte_t *md5_2)
@@ -1261,13 +1285,13 @@ static int md5sums_match(const char *fname1, const char *fname2,
 /* put a PATCH operation in the mojopatch file... */
 static int put_patch(SerialArchive *ar, const char *fname1, const char *fname2)
 {
-    PatchOperation patch;
+    Operations ops;
     FILE *deltaio = NULL;
     int retval = PATCHERROR;
     struct stat statbuf;
 
     _current_operation("VERIFY %s", final_path_element(fname2));
-	if (md5sums_match(fname1, fname2, patch.md5_1, patch.md5_2))
+	if (md5sums_match(fname1, fname2, ops.patch.md5_1, ops.patch.md5_2))
         return(PATCHSUCCESS);
 
     _current_operation("PATCH %s", final_path_element(fname2));
@@ -1286,18 +1310,18 @@ static int put_patch(SerialArchive *ar, const char *fname1, const char *fname2)
     } /* if */
 
     if ( (!_do_xdelta("delta -n --maxmem=%dM \"%s\" \"%s\" \"%s\"", maxxdeltamem, fname1, fname2, patchtmpfile)) ||
-         (!get_file_size(patchtmpfile, &patch.deltasize)) )
+         (!get_file_size(patchtmpfile, &ops.patch.deltasize)) )
     {
         /* !!! FIXME: Not necessarily true. */
         _fatal("there was a problem running xdelta.");
         return(PATCHERROR);
     } /* if */
 
-    patch.operation = OPERATION_PATCH;
-    patch.mode = (mode_t) statbuf.st_mode;
-    patch.fsize = statbuf.st_size;
-    make_static_string(patch.fname, fname2);
-    if (!serialize_patch_op(ar, &patch))
+    ops.operation = OPERATION_PATCH;
+    ops.patch.mode = (mode_t) statbuf.st_mode;
+    ops.patch.fsize = statbuf.st_size;
+    make_static_string(ops.patch.fname, fname2);
+    if (!serialize_operation(ar, &ops))
         return(PATCHERROR);
 
     deltaio = fopen(patchtmpfile, "rb");
@@ -1307,7 +1331,7 @@ static int put_patch(SerialArchive *ar, const char *fname1, const char *fname2)
         return(PATCHERROR);
     } /* if */
 
-    retval = write_between_files(deltaio, ar->io, patch.deltasize);
+    retval = write_between_files(deltaio, ar->io, ops.patch.deltasize);
     assert(fgetc(deltaio) == EOF);
     fclose(deltaio);
     unlink(patchtmpfile);
@@ -1413,6 +1437,16 @@ static int handle_patch_op(SerialArchive *ar, OperationType op, void *d)
     _log("done PATCH.");
     return(PATCHSUCCESS);
 } /* handle_patch_op */
+
+/* get a DONE operation from the mojopatch file... */
+static int handle_done_op(SerialArchive *ar, OperationType op, void *d)
+{
+    /*DoneOperation *done = (DoneOperation *) d;*/
+    assert(op == OPERATION_DONE);
+    _log("DONE");
+    /* This might set some global state at some point... */
+    return(PATCHSUCCESS);
+} /* handle_done_op */
 
 
 static int compare_directories(SerialArchive *ar,
@@ -1717,11 +1751,7 @@ static int create_patchfile(void)
     free(real1);
 
     if (retval != PATCHERROR)
-    {
-        DoneOperation done;
-        done.operation = OPERATION_DONE;
-        retval = serialize_done_op(&ar, &done) ? PATCHSUCCESS : PATCHERROR;
-    } /* if */
+        retval = put_done(&ar);
 
     if (!close_serialized_archive(&ar))
     {
