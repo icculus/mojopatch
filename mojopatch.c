@@ -688,7 +688,8 @@ static int write_between_files_compress(FILE *in, FILE *out, long fsize)
 } /* write_between_files_compress */
 
 
-static int write_between_files_uncompress(FILE *in, FILE *out, long fsize)
+static int write_between_files_uncompress(FILE *in, FILE *out,
+                                          long fsize, int skip)
 {
     uLongf compsize;
     uLongf uncompsize;
@@ -708,28 +709,41 @@ static int write_between_files_uncompress(FILE *in, FILE *out, long fsize)
             return(PATCHERROR);
         } /* if */
 
-        if (fread(compbuf, compsize, 1, in) != 1)
-        {
-            _fatal("read error: %s.", strerror(errno));
-            return(PATCHERROR);
-        } /* if */
-        ui_pump();
-
-        if (uncompress(iobuf, &uncompsize, compbuf, compsize) != Z_OK)
-        {
-            _fatal("zlib decompression error.");
-            return(PATCHERROR);
-        } /* if */
-        ui_pump();
-
         /* fsize is the uncompressed file size... */
         fsize -= uncompsize;
 
-        if (fwrite(iobuf, uncompsize, 1, out) != 1)
+        if (skip)
         {
-            _fatal("write error: %s.", strerror(errno));
-            return(PATCHERROR);
+            if (fseek(in, compsize, SEEK_CUR) < 0)
+            {
+                _fatal("seek error: %s.", strerror(errno));
+                return(PATCHERROR);
+            } /* if */
         } /* if */
+
+        else
+        {
+            if (fread(compbuf, compsize, 1, in) != 1)
+            {
+                _fatal("read error: %s.", strerror(errno));
+                return(PATCHERROR);
+            } /* if */
+            ui_pump();
+
+            if (uncompress(iobuf, &uncompsize, compbuf, compsize) != Z_OK)
+            {
+                _fatal("zlib decompression error.");
+                return(PATCHERROR);
+            } /* if */
+            ui_pump();
+
+            if (fwrite(iobuf, uncompsize, 1, out) != 1)
+            {
+                _fatal("write error: %s.", strerror(errno));
+                return(PATCHERROR);
+            } /* if */
+        } /* else */
+
         ui_pump();
     } /* while */
 
@@ -744,7 +758,7 @@ static int write_between_files(FILE *in, FILE *out, long fsize, ZlibOptions z)
     if (z == ZLIB_COMPRESS)
         return(write_between_files_compress(in, out, fsize));
     else if (z == ZLIB_UNCOMPRESS)
-        return(write_between_files_uncompress(in, out, fsize));
+        return(write_between_files_uncompress(in, out, fsize, 0));
     else
         assert(z == ZLIB_NONE);
     #endif
@@ -1165,11 +1179,15 @@ static int handle_add_op(SerialArchive *ar, OperationType op, void *d)
 
     if ( (info_only()) || (!confirm()) || (in_ignore_list(add->fname)) )
     {
+        #if USE_ZLIB  /* skip through compressed file... */
+            return(write_between_files_uncompress(ar->io, NULL, add->fsize, 1));
+        #else
         if (fseek(ar->io, add->fsize, SEEK_CUR) < 0)
         {
             _fatal("Seek error: %s.", strerror(errno));
             return(PATCHERROR);
         } /* if */
+        #endif
         return(PATCHSUCCESS);
     } /* if */
 
