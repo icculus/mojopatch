@@ -382,25 +382,36 @@ int chdir_by_identifier(const char *name, const char *str, const char *version)
     char buf[MAXPATHLEN];
     Boolean b;
     OSStatus rc;
-    CFURLRef url = NULL;
-    CFStringRef id = CFStringCreateWithBytes(NULL, str, strlen(str),
+    int found = 0;
+
+    /* if an identifier is specified, ask LaunchServices to find product... */
+    if ((str != NULL) && (*str))
+    {
+        CFURLRef url = NULL;
+        CFStringRef id = CFStringCreateWithBytes(NULL, str, strlen(str),
                                                 kCFStringEncodingISOLatin1, 0);
 
-    rc = LSFindApplicationForInfo(kLSUnknownCreator, id, NULL, NULL, &url);
-    CFRelease(id);
-    if (rc == noErr)
-    {
-        b = CFURLGetFileSystemRepresentation(url, TRUE, buf, sizeof (buf));
-        CFRelease(url);
-        if (!b)
+        rc = LSFindApplicationForInfo(kLSUnknownCreator, id, NULL, NULL, &url);
+        CFRelease(id);
+        if (rc == noErr)
         {
-            _fatal("Internal error.");
-            return(0);
+            b = CFURLGetFileSystemRepresentation(url, TRUE, buf, sizeof (buf));
+            CFRelease(url);
+            if (!b)
+            {
+                _fatal("Internal error.");
+                return(0);
+            } /* if */
+            found = 1;
+        } /* if */
+        else
+        {
+            _log("Couldn't find product. Perhaps it isn't installed?");
         } /* if */
     } /* if */
-    else
+
+    if (!found) /* No identifier, or LaunchServices couldn't find it. */
     {
-        _log("Couldn't find product. Perhaps it isn't installed?");
         if (!manually_locate_product(name, buf, sizeof (buf)))
         {
             _fatal("We can't patch the product if we can't find it!");
