@@ -191,8 +191,10 @@ static int ignorecount = 0;
 static unsigned int maxxdeltamem = 128;  /* in megabytes. */
 
 static unsigned char iobuf[512 * 1024];
-static unsigned char compbuf[520 * 1024];
 
+#if USE_ZLIB
+static unsigned char compbuf[520 * 1024];
+#endif
 
 static int serialize(SerialArchive *ar, void *val, size_t size)
 {
