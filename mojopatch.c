@@ -35,7 +35,15 @@
 #include "ui.h"
 #include "md5.h"
 
-#define VERSION "0.0.5"
+#define VER_EXT_ZLIB
+
+#if USE_ZLIB
+#include "zlib.h"
+#undef VER_EXT_ZLIB
+#define VER_EXT_ZLIB " (w/zlib)"
+#endif
+
+#define VERSION "0.0.5" VER_EXT_ZLIB
 
 #define DEFAULT_PATCHFILENAME "default.mojopatch"
 
@@ -150,6 +158,13 @@ typedef enum
     COMMAND_TOTAL
 } PatchCommands;
 
+typedef enum
+{
+    ZLIB_NONE,
+    ZLIB_COMPRESS,
+    ZLIB_UNCOMPRESS
+} ZlibOptions;
+
 
 static int debug = 0;
 static int interactive = 0;
@@ -158,6 +173,7 @@ static int appending = 0;
 static int alwaysadd = 0;
 static int quietonsuccess = 0;
 static int skip_patch = 0;
+static int zliblevel = 9;
 static PatchCommands command = COMMAND_NONE;
 
 static const char *patchfile = NULL;
@@ -175,6 +191,7 @@ static int ignorecount = 0;
 static unsigned int maxxdeltamem = 128;  /* in megabytes. */
 
 static unsigned char iobuf[512 * 1024];
+static unsigned char compbuf[520 * 1024];
 
 
 static int serialize(SerialArchive *ar, void *val, size_t size)
@@ -628,30 +645,131 @@ static void free_filelist(file_list *list)
 } /* free_filelist */
 
 
-static int write_between_files(FILE *in, FILE *out, long fsize)
+#if USE_ZLIB
+static int write_between_files_compress(FILE *in, FILE *out, long fsize)
 {
+    uLongf compsize;
+    uLongf uncompsize;
+
     while (fsize > 0)
     {
-        int max = sizeof (iobuf);
-        if (max > fsize)
-            max = fsize;
+        uncompsize = sizeof (iobuf);
+        if (uncompsize > fsize)
+            uncompsize = fsize;
 
-        int br = fread(iobuf, 1, max, in);
-        if (br <= 0)
+        if (fread(iobuf, uncompsize, 1, in) != 1)
         {
             _fatal("read error: %s.", strerror(errno));
             return(PATCHERROR);
         } /* if */
         ui_pump();
 
-        if (fwrite(iobuf, br, 1, out) != 1)
+        fsize -= uncompsize;
+
+        compsize = sizeof (compbuf);
+        if (compress2(compbuf, &compsize, iobuf, uncompsize, zliblevel)!=Z_OK)
+        {
+            _fatal("zlib compression error.");
+            return(PATCHERROR);
+        } /* if */
+        ui_pump();
+
+        if ( (fwrite(&uncompsize, sizeof (uncompsize), 1, out) != 1) ||
+             (fwrite(&compsize, sizeof (compsize), 1, out) != 1) ||
+             (fwrite(compbuf, compsize, 1, out) != 1) )
         {
             _fatal("write error: %s.", strerror(errno));
             return(PATCHERROR);
         } /* if */
         ui_pump();
+    } /* while */
 
-        fsize -= br;
+    return(PATCHSUCCESS);
+} /* write_between_files_compress */
+
+
+static int write_between_files_uncompress(FILE *in, FILE *out, long fsize)
+{
+    uLongf compsize;
+    uLongf uncompsize;
+
+    while (fsize > 0)
+    {
+        if ( (fread(&uncompsize, sizeof (uncompsize), 1, in) != 1) ||
+             (fread(&compsize, sizeof (compsize), 1, in) != 1) )
+        {
+            _fatal("read error: %s.", strerror(errno));
+            return(PATCHERROR);
+        } /* if */
+
+        if ( (compsize > sizeof (compbuf)) || (uncompsize > sizeof (iobuf)) )
+        {
+            _fatal("bogus compression data.");
+            return(PATCHERROR);
+        } /* if */
+
+        if (fread(compbuf, compsize, 1, in) != 1)
+        {
+            _fatal("read error: %s.", strerror(errno));
+            return(PATCHERROR);
+        } /* if */
+        ui_pump();
+
+        if (uncompress(iobuf, &uncompsize, compbuf, compsize) != Z_OK)
+        {
+            _fatal("zlib decompression error.");
+            return(PATCHERROR);
+        } /* if */
+        ui_pump();
+
+        /* fsize is the uncompressed file size... */
+        fsize -= uncompsize;
+
+        if (fwrite(iobuf, uncompsize, 1, out) != 1)
+        {
+            _fatal("write error: %s.", strerror(errno));
+            return(PATCHERROR);
+        } /* if */
+        ui_pump();
+    } /* while */
+
+    return(PATCHSUCCESS);
+} /* write_between_files_uncompress */
+#endif
+
+
+static int write_between_files(FILE *in, FILE *out, long fsize, ZlibOptions z)
+{
+    #if USE_ZLIB
+    if (z == ZLIB_COMPRESS)
+        return(write_between_files_compress(in, out, fsize));
+    else if (z == ZLIB_UNCOMPRESS)
+        return(write_between_files_uncompress(in, out, fsize));
+    else
+        assert(z == ZLIB_NONE);
+    #endif
+
+    while (fsize > 0)
+    {
+        int max = sizeof (iobuf);
+        if (max > fsize)
+            max = fsize;
+
+        if (fread(iobuf, max, 1, in) != 1)
+        {
+            _fatal("read error: %s.", strerror(errno));
+            return(PATCHERROR);
+        } /* if */
+        ui_pump();
+
+        fsize -= max;
+
+        if (fwrite(iobuf, max, 1, out) != 1)
+        {
+            _fatal("write error: %s.", strerror(errno));
+            return(PATCHERROR);
+        } /* if */
+        ui_pump();
     } /* while */
 
     return(PATCHSUCCESS);
@@ -685,7 +803,7 @@ static int do_rename(const char *from, const char *to)
         return(PATCHERROR);
     } /* if */
 
-    rc = write_between_files(in, out, fsize);
+    rc = write_between_files(in, out, fsize, ZLIB_NONE);
 
     fclose(in);
     if ((fclose(out) == -1) && (rc != PATCHERROR))
@@ -1018,7 +1136,7 @@ static int put_add(SerialArchive *ar, const char *fname)
     if (!serialize_operation(ar, &ops))
         goto put_add_done;
 
-    if (!write_between_files(in, ar->io, ops.add.fsize))
+    if (!write_between_files(in, ar->io, ops.add.fsize, ZLIB_COMPRESS))
         goto put_add_done;
 
     assert(fgetc(in) == EOF);
@@ -1099,7 +1217,7 @@ static int handle_add_op(SerialArchive *ar, OperationType op, void *d)
         goto handle_add_done;
     } /* if */
 
-    rc = write_between_files(ar->io, io, add->fsize);
+    rc = write_between_files(ar->io, io, add->fsize, ZLIB_UNCOMPRESS);
     if (rc == PATCHERROR)
         goto handle_add_done;
 
@@ -1346,7 +1464,10 @@ static int put_patch(SerialArchive *ar, const char *fname1, const char *fname2)
         return(PATCHERROR);
     } /* if */
 
-    retval = write_between_files(deltaio, ar->io, ops.patch.deltasize);
+    retval = write_between_files(deltaio, ar->io,
+                                 ops.patch.deltasize,
+                                 ZLIB_NONE);
+
     assert(fgetc(deltaio) == EOF);
     fclose(deltaio);
     unlink(patchtmpfile);
@@ -1412,7 +1533,7 @@ static int handle_patch_op(SerialArchive *ar, OperationType op, void *d)
         return(PATCHERROR);
     } /* if */
 
-    rc = write_between_files(ar->io, deltaio, patch->deltasize);
+    rc = write_between_files(ar->io, deltaio, patch->deltasize, ZLIB_NONE);
     fclose(deltaio);
     if (rc == PATCHERROR)
     {
@@ -1987,6 +2108,7 @@ static int do_usage(const char *argv0)
     _log("    --quietonsuccess (Don't do msgbox on successful finish)");
     _log("    --readme (README filename to display/install)");
     _log("    --renamedir (What patched dir should be called)");
+    _log("    --zliblevel (compression, 0-9: 0 == fastest, 9 == best)");
     _log("    --titlebar (What UI's window's titlebar should say)");
     _log("    --ignore (Ignore specific files/dirs)");
     _log("    --confirm (Make process confirm each step)");
@@ -2069,6 +2191,15 @@ static int parse_cmdline(int argc, char **argv)
             make_static_string(header.renamedir, argv[++i]);
         else if (strcmp(argv[i], "--titlebar") == 0)
             make_static_string(header.titlebar, argv[++i]);
+        else if (strcmp(argv[i], "--zliblevel") == 0)
+        {
+            zliblevel = atoi(argv[++i]);
+            if ((zliblevel < 0) || (zliblevel > 9))
+            {
+                _fatal("zliblevel must be between 0 and 9");
+                return(do_usage(argv[0]));
+            } /* if */
+        } /* else if */
         else if (strcmp(argv[i], "--ignore") == 0)
         {
             ignorecount++;
@@ -2126,6 +2257,7 @@ static int parse_cmdline(int argc, char **argv)
         _dlog("Created patch will %sbe appended.", (appending) ? "" : "NOT ");
         _dlog("%sse ADDs instead of PATCHs.", (alwaysadd) ? "U" : "Do NOT u");
         _dlog("%seport success in UI", (quietonsuccess) ? "Don't r" : "R");
+        _dlog("zliblevel == (%d).", (int) zliblevel);
         _dlog("command == (%d).", (int) command);
         _dlog("(%d) nonoptions:", nonoptcount);
         for (i = 0; i < nonoptcount; i++)

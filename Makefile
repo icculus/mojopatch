@@ -7,6 +7,7 @@ BINDIR := bin
 SRCDIR := .
 
 platform := macosx
+use_zlib := true
 
 ifeq ($(strip $(platform)),macosx)
 PLATFORMDEF := -DPLATFORM_UNIX -DPLATFORM_MACOSX
@@ -26,6 +27,10 @@ endif
 
 CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -O0
 
+ifeq ($(strip $(use_zlib)),true)
+  CFLAGS += -DUSE_ZLIB
+  LDFLAGS += -lz
+endif
 
 MOJOPATCHSRCS := mojopatch.c md5.c $(PLATFORMSRCS)
 OBJS1 := $(MOJOPATCHSRCS:.c=.o)
