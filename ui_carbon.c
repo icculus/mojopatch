@@ -193,7 +193,6 @@ int manually_locate_product(const char *name, char *buf, size_t bufsize)
         return(0);
     } /* if */
 
-    _log("Creating file selector dialog...");
     NavGetDefaultDialogCreationOptions(&dlgopt);
     dlgopt.optionFlags |= kNavSupportPackages;
     dlgopt.optionFlags |= kNavAllowOpenPackages;
