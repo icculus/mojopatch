@@ -28,10 +28,12 @@ mkdir -p tmp
 echo "copying initial patch to SoU branch..."
 cp -R MojoPatch.app "/Users/icculus/Desktop/Shadows of Undrentide Installer.app"
 rm -f "/Users/icculus/Desktop/Shadows of Undrentide Installer.app/Contents/MacOS/xdelta"
+find "/Users/icculus/Desktop/Shadows of Undrentide Installer.app" -name ".svn" -type d -exec rm -rf {} \; 2>/dev/null
 
 echo "copying initial patch to HotU branch..."
 cp -R MojoPatch.app "/Users/icculus/Desktop/Hordes of the Underdark Installer.app"
 rm -f "/Users/icculus/Desktop/Hordes of the Underdark Installer.app/Contents/MacOS/xdelta"
+find "/Users/icculus/Desktop/Hordes of the Underdark Installer.app" -name ".svn" -type d -exec rm -rf {} \; 2>/dev/null
 
 # Add XP1 data to patchfile...
 ./MojoPatch.app/Contents/MacOS/mojopatch  --create --alwaysadd --zliblevel 1 \
