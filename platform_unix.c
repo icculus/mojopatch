@@ -274,10 +274,6 @@ static char *find_info_plist_bundle_id(char *ptr)
             continue;
         } /* if */
 
-        /* You should only use CFBundleShortVersionString, for various
-         *  reasons not worth explaining here. CFBundleVersion is here
-         *  for older products that need to update to the other tag.
-         */
         if (strcasecmp(tag,"key") == 0)
         {
             if (strcasecmp(val,"CFBundleIdentifier") == 0)
