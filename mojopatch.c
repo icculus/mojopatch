@@ -1931,6 +1931,10 @@ static int do_patching(void)
                 } /* if */
             } /* if */
         } /* if */
+
+        /* !!! FIXME: This loses command line overrides! */
+        memset(&header, '\0', sizeof (header));
+
         report_error = 0;
     } /* while */
 
