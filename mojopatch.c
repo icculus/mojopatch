@@ -2204,7 +2204,7 @@ static int parse_cmdline(int argc, char **argv)
         {
             ignorecount++;
             ignorelist = (char **) realloc(ignorelist, sizeof (char *) * ignorecount);
-            // !!! FIXME: Check retval.
+            /* !!! FIXME: Check retval. */
             ignorelist[ignorecount-1] = argv[++i];
         } /* else if */
         else

@@ -94,7 +94,7 @@ void ui_pump(void)
 
 void ui_add_to_log(const char *str, int debugging)
 {
-    // !!! FIXME
+    /* !!! FIXME */
     printf("MojoPatch%s: %s\n", debugging ? " [debug]" : "", str);
 } /* ui_add_to_log */
 

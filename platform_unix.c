@@ -297,7 +297,7 @@ static int parse_info_dot_plist(const char *ident,
                                 const char *version,
                                 const char *newversion)
 {
-    const char *fname = "Contents/Info.plist";  // already chdir'd for this.
+    const char *fname = "Contents/Info.plist";  /* already chdir'd for this. */
     char *mem = NULL;
     char *ptr;
     long fsize;
@@ -363,7 +363,7 @@ parse_info_plist_bailed:
 
 int update_version(const char *ver)
 {
-    const char *fname = "Contents/Info.plist";  // already chdir'd for this.
+    const char *fname = "Contents/Info.plist";  /* already chdir'd for this. */
     char *mem = NULL;
     char *ptr;
     long fsize;
