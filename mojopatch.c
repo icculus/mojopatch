@@ -597,8 +597,6 @@ int version_ok(const char *ver, const char *allowed_ver)
         double dver;
         double dallow;
         ptr = buf + lessThanLen;
-        *ptr = '\0';
-        ptr++;
 
         dver = strtod(ver, &endptr);
         if (endptr == ver)
