@@ -183,13 +183,10 @@ static int serialize(SerialArchive *ar, void *val, size_t size)
     else
         rc = fwrite(val, size, 1, ar->io);
 
-    if (rc <= 0)
-    {
+    if ( (rc != 1) && (ferror(ar->io)) )
         _fatal("%s error: %s.", ar->reading ? "Read":"Write", strerror(errno));
-        return(0);
-    } /* if */
 
-    return(1);
+    return(rc == 1);  /* may fail without calling _fatal() on EOF! */
 } /* serialize */
 
 
@@ -274,10 +271,17 @@ static int serialize_asciz_string(SerialArchive *ar, char **_buffer)
 } /* serialize_asciz_string */
 
 
-static int serialize_header(SerialArchive *ar, PatchHeader *h)
+static int serialize_header(SerialArchive *ar, PatchHeader *h, int *legitEOF)
 {
-    if (!SERIALIZE(ar, h->signature))
-        return(0);
+    int rc;
+    int dummy = 0;
+    if (legitEOF == NULL)
+        legitEOF = &dummy;
+
+    rc = SERIALIZE(ar, h->signature);
+    *legitEOF = ( (feof(ar->io)) && (!ferror(ar->io)) );
+    if (!rc)
+        return(*legitEOF);
 
     if (memcmp(h->signature, MOJOPATCHSIG, sizeof (h->signature)) != 0)
     {
@@ -1683,7 +1687,7 @@ static int create_patchfile(void)
         header.readmedata[0] = '\0';
     } /* else */
 
-    if (!serialize_header(&ar, &header))
+    if (!serialize_header(&ar, &header, NULL))
     {
         close_serialized_archive(&ar);
         free(real1);
@@ -1768,6 +1772,7 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 {
     int retval = PATCHSUCCESS;
 
+    _log("============Starting a new patch!============");
     _log("Product to patch: \"%s\".", *h->product ? h->product : "(blank)");
     _log("Product identifier: \"%s\".", h->identifier);
     _log("Patch from version: \"%s\".", h->version);
@@ -1824,38 +1829,47 @@ static int do_patching(void)
     if (!open_serialized_archive(&ar, patchfile, 1, &do_progress, &file_size))
         return(PATCHERROR);
 
-    if (!serialize_header(&ar, &header))
-        goto do_patching_done;
-
-    if (process_patch_header(&ar, &header) == PATCHERROR)
-        goto do_patching_done;
-
-    report_error = 1;
     if (file_size == 0)
         do_progress = 0;  /* prevent a division by zero. */
-    if (do_patch_operations(&ar, do_progress, file_size) == PATCHERROR)
-        goto do_patching_done;
 
-    close_serialized_archive(&ar);
-
-    if (!info_only())
+    while (1)
     {
-        _current_operation("Updating product version...");
-        ui_total_progress(-1);
-        if ( (*header.newversion) && (!update_version(header.newversion)) )
+        int legitEOF = 0;
+        if (!serialize_header(&ar, &header, &legitEOF))
             goto do_patching_done;
 
-        if (*header.renamedir)
+        if (legitEOF)  /* actually end of file, so bail. */
+            break;
+
+        if (process_patch_header(&ar, &header) == PATCHERROR)
+            goto do_patching_done;
+
+        report_error = 1;
+        if (do_patch_operations(&ar, do_progress, file_size) == PATCHERROR)
+            goto do_patching_done;
+
+        if (!info_only())
         {
-            char cwdbuf[MAX_PATH];
-            if (getcwd(cwdbuf, sizeof (cwdbuf)) != NULL)
+            _current_operation("Updating product version...");
+            ui_total_progress(-1);
+            if ( (*header.newversion) && (!update_version(header.newversion)) )
+                goto do_patching_done;
+
+            if (*header.renamedir)
             {
-                chdir("..");
-                rename(cwdbuf, header.renamedir);
-                chdir(header.renamedir);  /* just in case */
+                char cwdbuf[MAX_PATH];
+                if (getcwd(cwdbuf, sizeof (cwdbuf)) != NULL)
+                {
+                    chdir("..");
+                    rename(cwdbuf, header.renamedir); /* !!! FIXME: retval? */
+                    chdir(header.renamedir);  /* just in case */
+                } /* if */
             } /* if */
         } /* if */
-    } /* if */
+        report_error = 0;
+    } /* while */
+
+    close_serialized_archive(&ar);
 
     retval = PATCHSUCCESS;
     ui_total_progress(100);
