@@ -7,11 +7,11 @@ BINDIR := bin
 SRCDIR := .
 
 # must be "macosx" or "unix" or "win32" ... not all necessarily work right now.
-platform := unix
+platform := macosx
 
 # Add zlib support? Will compress all ADD/ADDORREPLACE/PATCH operations.
 # If you're going to compress the patch anyhow, this might not be wanted.
-use_zlib := true
+use_zlib := false
 
 # Unix/Mac will try fork() if this is false.
 use_pthread := false
@@ -35,7 +35,8 @@ ifeq ($(strip $(platform)),unix)
   PLATFORMSRCS := platform_unix.c ui_stdio.c
 endif
 
-CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -O0
+#CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -O0
+CFLAGS := $(PLATFORMDEF) -Wall -fsigned-char -fomit-frame-pointer -Os
 
 ifeq ($(strip $(use_zlib)),true)
   CFLAGS += -DUSE_ZLIB
