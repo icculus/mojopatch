@@ -237,7 +237,44 @@ static char *find_info_plist_version(char *ptr)
 } /* find_info_plist_version */
 
 
-static int parse_info_dot_plist(const char *version)
+/* !!! FIXME: Code duplication */
+static char *find_info_plist_bundle_id(char *ptr)
+{
+    int have_key = 0;
+    char *tag;
+    char *val;
+
+    while ( (ptr = parse_xml(ptr, &tag, &val)) != NULL )
+    {
+        if (have_key)
+        {
+            have_key = 0;
+            if (strcasecmp(tag, "string") == 0)
+                return(val);
+        } /* if */
+
+        if ((strcasecmp(tag, "plist") == 0) || (strcasecmp(tag, "dict") == 0))
+        {
+            ptr = val;
+            continue;
+        } /* if */
+
+        /* You should only use CFBundleShortVersionString, for various
+         *  reasons not worth explaining here. CFBundleVersion is here
+         *  for older products that need to update to the other tag.
+         */
+        if (strcasecmp(tag,"key") == 0)
+        {
+            if (strcasecmp(val,"CFBundleIdentifier") == 0)
+                have_key = 1;
+        } /* if */
+    } /* while */
+    
+    return(NULL);
+} /* find_info_plist_version */
+
+
+static int parse_info_dot_plist(const char *ident, const char *version)
 {
     const char *fname = "Contents/Info.plist";  // already chdir'd for this.
     char *mem = NULL;
