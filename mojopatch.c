@@ -1696,7 +1696,8 @@ static int create_patchfile(void)
         return(PATCHERROR);
     } /* if */
 
-    unlink(patchfile);  /* just in case. */
+    if (!appending)
+        unlink(patchfile);  /* just in case. */
 
     if (!open_serialized_archive(&ar, patchfile, 0, NULL, NULL))
     {
