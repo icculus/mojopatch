@@ -9,6 +9,7 @@
 - Split mojopatch.c into multiple files.
 - Get other platforms besides Mac updated and building again.
 - Look for FIXMEs...
+- "_fatal" isn't really appropriate anymore, since it might not be fatal.
 
 /* end of TODO ... */
 
