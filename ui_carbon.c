@@ -230,7 +230,7 @@ int manually_locate_product(const char *name, char *buf, size_t bufsize)
             retval ? "selected" : "did NOT select");
 
     return(retval);
-}
+} /* manually_locate_product */
 
 
 void ui_fatal(const char *str)
