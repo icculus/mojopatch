@@ -64,6 +64,7 @@ void ui_title(const char *str)
     CFStringRef cfstr = CFStringCreateWithBytes(NULL, str, strlen(str),
                                                 kCFStringEncodingISOLatin1, 0);
     SetWindowTitleWithCFString(window, cfstr);
+    CFRelease(cfstr);
     ui_pump();
 } /* ui_title */
 
