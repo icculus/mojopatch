@@ -10,7 +10,15 @@
 #include <sys/param.h>
 #include <errno.h>
 #include <assert.h>
+
+/* !!! FIXME: Why aren't we using fork(), anyhow? */
+#if !USE_PTHREAD
+#error not implemented yet.
+#endif
+
+#if USE_PTHREAD
 #include <pthread.h>
+#endif
 
 #include "platform.h"
 #include "ui.h"
@@ -512,6 +520,10 @@ static void *spawn_thread(void *arg)
 
 int spawn_xdelta(const char *cmdline)
 {
+#if !USE_PTHREAD
+    _fatal("No pthread support!");
+    return(0);
+#else
     pthread_t thr;
     void *rc;
     const char *binname = "xdelta";
@@ -532,6 +544,7 @@ int spawn_xdelta(const char *cmdline)
 
     pthread_join(thr, &rc);
     return(1);  /* !!! FIXME    *((int *) rc) == 0 ); */
+#endif
 } /* spawn_xdelta */
 
 
