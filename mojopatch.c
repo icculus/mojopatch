@@ -536,7 +536,12 @@ static void _current_operation(const char *fmt, ...)
 int version_ok(const char *ver, const char *allowed_ver)
 {
     char *ptr;
-    char *buf = (char *) alloca(strlen(allowed_ver) + 1);
+    char *buf;
+
+    if (*allowed_ver == '\0')
+        return 1;  /* No specified version? Anything is okay, then. */
+
+    buf = (char *) alloca(strlen(allowed_ver) + 1);
     strcpy(buf, allowed_ver);
 
     while ((ptr = strstr(buf, " or ")) != NULL)
@@ -1607,24 +1612,28 @@ static int create_patchfile(void)
             make_static_string(header.readmefname, ptr);
     } /* if */
 
-    if (strcmp(header.identifier, "") == 0) /* specified on the commandline. */
+    if (*header.product == '\0')  /* specified on the commandline. */
     {
-        _fatal("Can't create a patchfile without an identifier.");
+        _fatal("No product name specified, but it's required!");
         return(PATCHERROR);
     } /* if */
 
-    // !!! FIXME: platform should determine this by examining compared dirs.
-    if (strcmp(header.version, "") == 0)  /* specified on the commandline. */
+    if (*header.identifier == '\0')  /* specified on the commandline. */
     {
-        _fatal("Can't create a patchfile without --version.");
-        return(PATCHERROR);
+        if (!ui_prompt_ny("No identifier specified. Is this intentional?"))
+            return(PATCHERROR);
     } /* if */
 
-    // !!! FIXME: platform should determine this by examining compared dirs.
-    if (strcmp(header.newversion, "") == 0)  /* specified on the commandline. */
+    if (*header.version == '\0')  /* specified on the commandline. */
     {
-        _fatal("Can't create a patchfile without --newversion.");
-        return(PATCHERROR);
+        if (!ui_prompt_ny("No version specified. Is this intentional?"))
+            return(PATCHERROR);
+    } /* if */
+
+    if (*header.newversion == '\0')  /* specified on the commandline. */
+    {
+        if (!ui_prompt_ny("No newversion specified. Is this intentional?"))
+            return(PATCHERROR);
     } /* if */
 
     real1 = get_realpath(dir1);
@@ -1768,18 +1777,24 @@ static int do_patch_operations(SerialArchive *ar,
 } /* do_patch_operations */
 
 
+static inline void header_log(const char *str, const char *val)
+{
+    _log(str, *val ? val : "(blank)");
+} /* header_log */
+
+
 static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 {
     int retval = PATCHSUCCESS;
 
     _log("============Starting a new patch!============");
-    _log("Product to patch: \"%s\".", *h->product ? h->product : "(blank)");
-    _log("Product identifier: \"%s\".", h->identifier);
-    _log("Patch from version: \"%s\".", h->version);
-    _log("Patch to version: \"%s\".", h->newversion);
-    _log("Readme: \"%s\".", *h->readmefname ? h->readmefname : "(none)");
-    _log("Renamedir: \"%s\".", *h->renamedir ? h->renamedir : "(none)");
-    _log("UI titlebar: \"%s\".", *h->titlebar ? h->titlebar : "(blank)");
+    header_log("Product to patch: \"%s\".", h->product);
+    header_log("Product identifier: \"%s\".", h->identifier);
+    header_log("Patch from version: \"%s\".", h->version);
+    header_log("Patch to version: \"%s\".", h->newversion);
+    header_log("Readme: \"%s\".", h->readmefname);
+    header_log("Renamedir: \"%s\".", h->renamedir);
+    header_log("UI titlebar: \"%s\".", h->titlebar);
 
     /* Fill in a default titlebar if needed. */
     if (*h->titlebar == '\0')
