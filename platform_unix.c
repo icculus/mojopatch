@@ -383,9 +383,10 @@ int chdir_by_identifier(const char *name, const char *str, const char *version)
     Boolean b;
     OSStatus rc;
     int found = 0;
+    int hasident = ((str != NULL) && (*str));
 
     /* if an identifier is specified, ask LaunchServices to find product... */
-    if ((str != NULL) && (*str))
+    if (hasident)
     {
         CFURLRef url = NULL;
         CFStringRef id = CFStringCreateWithBytes(NULL, str, strlen(str),
@@ -427,7 +428,7 @@ int chdir_by_identifier(const char *name, const char *str, const char *version)
         return(0);
     } /* if */
 
-    return(parse_info_dot_plist(str, version));
+    return(hasident ? parse_info_dot_plist(str, version) : 1);
 } /* chdir_by_identifier */
 
 
