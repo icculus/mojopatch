@@ -2127,6 +2127,18 @@ static int do_patching(void)
     ui_total_progress(100);
     if (!info_only())
     {
+        /*
+         * last minute stuff: don't put some PC docs in there and
+         *  touch the whole thing so file dates are updated.
+         */
+        unlink("./docs/readme.txt");
+        unlink("./docs/NWNHordes_Manual.pdf");
+        unlink("./docs/NWN Hordes Install Guide.rtf");
+        unlink("./docs/HotUreadme.txt");
+        unlink("./docs/SoUreadme.txt");
+        unlink("./docs/NWN_SoU_OnlineManual.pdf");
+        system("touch -m -t 200407170745.00 'Neverwinter Nights.app'");
+
         if (!quietonsuccess)
             ui_success("Installation successful!");
 
