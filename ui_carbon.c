@@ -68,20 +68,26 @@ void ui_add_to_log(const char *str, int debugging)
 } /* ui_add_to_log */
 
 
-static void do_msgbox(const char *str, AlertType alert_type)
+static int do_msgbox(const char *str, AlertType alert_type,
+                     AlertStdCFStringAlertParamRec *param,
+                     DialogItemIndex *idx)
 {
     const char *_title = "MojoPatch";
+    int retval = 0;
+    DialogItemIndex val = 0;
     CFStringRef title = CFStringCreateWithBytes(NULL, _title, strlen(_title),
                                                 kCFStringEncodingISOLatin1, 0);
     CFStringRef msg = CFStringCreateWithBytes(NULL, str, strlen(str),
                                                 kCFStringEncodingISOLatin1, 0);
     if ((msg != NULL) && (title != NULL))
     {
-        DialogItemIndex val = 0;
         DialogRef dlg = NULL;
 
-        if (CreateStandardAlert(alert_type, title, msg, NULL, &dlg) == noErr)
-            RunStandardAlert(dlg, NULL, &val);
+        if (CreateStandardAlert(alert_type, title, msg, param, &dlg) == noErr)
+        {
+            RunStandardAlert(dlg, NULL, (idx) ? idx : &val);
+            retval = 1;
+        } /* if */
     } /* if */
 
     if (msg != NULL)
@@ -89,18 +95,114 @@ static void do_msgbox(const char *str, AlertType alert_type)
 
     if (title != NULL)
         CFRelease(title);
+
+    return(retval);
 } /* do_msgbox */
+
+
+static int ui_prompt_yes_or_no(const char *question, int yes)
+{
+    OSStatus err;
+    DialogItemIndex item;
+    AlertStdCFStringAlertParamRec params;
+    err = GetStandardAlertDefaultParams(&params, kStdCFStringAlertVersionOne);
+    if (err != noErr)
+        return(0);
+
+    params.movable = TRUE;
+    params.helpButton = FALSE;
+    params.defaultText = CFSTR("Yes");
+    params.cancelText = CFSTR("No");
+    params.defaultButton = (yes) ? kAlertStdAlertOKButton :
+                                   kAlertStdAlertCancelButton;
+    params.cancelButton = kAlertStdAlertCancelButton;
+    if (!do_msgbox(question, kAlertCautionAlert, &params, &item))
+        return(0); /* oh well. */
+
+    return(item == kAlertStdAlertOKButton);
+} /* ui_prompt_yes_or_no */
+
+int ui_prompt_yn(const char *question)
+{
+    return(ui_prompt_yes_or_no(question, 1));
+} /* ui_prompt_yn */
+
+int ui_prompt_ny(const char *question)
+{
+    return(ui_prompt_yes_or_no(question, 1));  /* !!! FIXME! should be zero. */
+} /* ui_prompt_ny */
+
+
+int manually_locate_product(char *buf, size_t bufsize)
+{
+    NavDialogCreationOptions dlgopt;
+    NavDialogRef dlg;
+    NavReplyRecord reply;
+    NavUserAction action;
+    AEKeyword keyword;
+    AEDesc desc;
+    FSRef fsref;
+    OSStatus rc;
+    int retval = 0;
+    int yn;
+
+    yn = ui_prompt_yn("We can't find your installation."
+                      " Would you like to show us where it is?");
+    if (!yn)
+    {
+        _log("User chose not to manually locate installation");
+        return(0);
+    } /* if */
+
+    _log("Creating file selector dialog...");
+    NavGetDefaultDialogCreationOptions(&dlgopt);
+    dlgopt.optionFlags |= kNavSupportPackages;
+    dlgopt.optionFlags |= kNavAllowOpenPackages;
+    dlgopt.optionFlags &= ~kNavAllowMultipleFiles;
+    dlgopt.windowTitle = CFSTR("Please select the product's icon and click 'OK'.");
+    dlgopt.actionButtonLabel = CFSTR("OK");
+    NavCreateChooseFolderDialog(&dlgopt, NULL, NULL, NULL, &dlg);
+    NavDialogRun(dlg);
+    action = NavDialogGetUserAction(dlg);
+    if (action == kNavUserActionCancel)
+        _log("User cancelled file selector!");
+    else
+    {
+        NavDialogGetReply(dlg, &reply);
+        rc = AEGetNthDesc(&reply.selection, 1, typeFSRef, &keyword, &desc);
+        if (rc != noErr)
+            _fatal("Unexpected error in AEGetNthDesc: %d\n", (int) rc);
+        else
+        {
+            /* !!! FIXME: Check return values here! */
+            BlockMoveData(*desc.dataHandle, &fsref, sizeof (fsref));
+            FSRefMakePath(&fsref, buf, bufsize - 1);
+            buf[bufsize - 1] = '\0';
+            AEDisposeDesc(&desc);
+            retval = 1;
+        } /* if */
+
+        NavDisposeReply(&reply);
+    } /* else */
+
+    NavDialogDispose(dlg);
+
+    _log("File selector complete. User %s path.",
+            retval ? "selected" : "did NOT select");
+
+    return(retval);
+}
 
 
 void ui_fatal(const char *str)
 {
-    do_msgbox(str, kAlertStopAlert);
+    do_msgbox(str, kAlertStopAlert, NULL, NULL);
 } /* ui_fatal */
 
 
 void ui_success(const char *str)
 {
-    do_msgbox(str, kAlertNoteAlert);
+    do_msgbox(str, kAlertNoteAlert, NULL, NULL);
 } /* ui_success */
 
 

@@ -538,6 +538,26 @@ static void _current_operation(const char *fmt, ...)
 } /* _current_operation */
 
 
+/* don't taunt this function. */
+int version_ok(const char *ver, const char *allowed_ver)
+{
+    char *ptr;
+    char *buf = (char *) alloca(strlen(allowed_ver) + 1);
+    strcpy(buf, allowed_ver);
+
+    while ((ptr = strstr(buf, " or ")) != NULL)
+    {
+        *ptr = '\0';
+        if (strcmp(ver, buf) == 0)
+            return(1);
+
+        buf = ptr + 4;
+    } /* while */
+
+    return(strcmp(ver, buf) == 0);
+} /* version_ok */
+
+
 static int _do_xdelta(const char *fmt, ...)
 {
     char buf[512];

@@ -46,6 +46,8 @@ void _log(const char *fmt, ...);
 /* Call this for logging (debug info). */
 void _dlog(const char *fmt, ...);
 
+int version_ok(const char *ver, const char *allowed);
+
 /* platform-specific stuff you implement. */
 int file_exists(const char *fname);
 int file_is_directory(const char *fname);

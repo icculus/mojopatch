@@ -16,6 +16,8 @@ void ui_success(const char *str);
 void ui_total_progress(int percent);
 void ui_status(const char *str);
 void ui_title(const char *str);
+int ui_prompt_yn(const char *question);
+int ui_prompt_ny(const char *question);
 
 #ifdef __cplusplus
 }

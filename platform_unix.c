@@ -220,8 +220,17 @@ static char *find_info_plist_version(char *ptr)
             continue;
         } /* if */
 
-        if ((strcasecmp(tag,"key")==0)&&(strcasecmp(val,"CFBundleVersion")==0))
-            have_key = 1;
+        /* You should only use CFBundleShortVersionString, for various
+         *  reasons not worth explaining here. CFBundleVersion is here
+         *  for older products that need to update to the other tag.
+         */
+        if (strcasecmp(tag,"key") == 0)
+        {
+            if (strcasecmp(val,"CFBundleVersion") == 0)
+                have_key = 1;
+            if (strcasecmp(val,"CFBundleShortVersionString") == 0)
+                have_key = 1;
+        } /* if */
     } /* while */
     
     return(NULL);
@@ -245,10 +254,28 @@ static int parse_info_dot_plist(const char *version)
     io = NULL;
     mem[fsize] = '\0';
 
+    ptr = find_info_plist_bundle_id(mem);
+    if ((ptr == NULL) || (strcasecmp(ptr, ident) != 0))
+    {
+        int yes = ui_prompt_ny("We don't think we're looking at the right directory!"
+                               " Are you SURE this is the right place?"
+                               " If you aren't sure, clicking 'Yes' can destroy unrelated files!");
+        if (!yes)
+        {
+            _fatal("Stopping at user's request.");
+            free(mem);
+            return(0);
+        } /* if */
+    } /* if */
+
+    if ( (io = fopen(fname, "r")) == NULL ) goto parse_info_plist_bailed;
+    if ( (fread(mem, fsize, 1, io)) != 1 ) goto parse_info_plist_bailed;
+    fclose(io);
+
     ptr = find_info_plist_version(mem);
     if (ptr != NULL)
     {
-        if (strcmp(version, ptr) == 0)
+        if (version_ok(ptr, version))
             retval = 1;
         else
         {
@@ -311,6 +338,8 @@ update_version_bailed:
 } /* update_version */
 
 
+int manually_locate_product(char *buf, size_t bufsize);
+
 int chdir_by_identifier(const char *str, const char *version)
 {
     char buf[MAXPATHLEN];
@@ -322,18 +351,24 @@ int chdir_by_identifier(const char *str, const char *version)
 
     rc = LSFindApplicationForInfo(kLSUnknownCreator, id, NULL, NULL, &url);
     CFRelease(id);
-    if (rc != noErr)
+    if (rc == noErr)
     {
-        _fatal("Couldn't find product. Perhaps it isn't installed?");
-        return(0);
+        b = CFURLGetFileSystemRepresentation(url, TRUE, buf, sizeof (buf));
+        CFRelease(url);
+        if (!b)
+        {
+            _fatal("Internal error.");
+            return(0);
+        } /* if */
     } /* if */
-
-    b = CFURLGetFileSystemRepresentation(url, TRUE, buf, sizeof (buf));
-    CFRelease(url);
-    if (!b)
+    else
     {
-        _fatal("Internal error.");
-        return(0);
+        _log("Couldn't find product. Perhaps it isn't installed?");
+        if (!manually_locate_product(buf, sizeof (buf)))
+        {
+            _fatal("We can't patch the product if we can't find it!");
+            return(0);
+        } /* if */
     } /* if */
 
     _log("I think the product is installed at [%s].", buf);
@@ -344,10 +379,7 @@ int chdir_by_identifier(const char *str, const char *version)
         return(0);
     } /* if */
 
-    if (strcmp(version, "") != 0)
-        return(parse_info_dot_plist(version));
-
-    return(1);
+    return(parse_info_dot_plist(str, version));
 } /* chdir_by_identifier */
 
 
