@@ -588,7 +588,7 @@ static void _current_operation(const char *fmt, ...)
 
 
 /* don't taunt this function. */
-int version_ok(const char *ver, const char *allowed_ver)
+int version_ok(const char *ver, const char *allowed_ver, const char *newver)
 {
     char *ptr;
     char *buf;
@@ -596,7 +596,7 @@ int version_ok(const char *ver, const char *allowed_ver)
     if (*allowed_ver == '\0')
         return 1;  /* No specified version? Anything is okay, then. */
 
-    if (strcmp(allowed_ver, ver) == 0)
+    if (strcmp(allowed_ver, newver) == 0)
         return -1;  /* all patched up. */
 
     buf = (char *) alloca(strlen(allowed_ver) + 1);

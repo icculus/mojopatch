@@ -331,7 +331,7 @@ static int parse_info_dot_plist(const char *ident,
     if (ptr != NULL)
     {
         knowver = 1;
-        retval = version_ok(ptr, version);
+        retval = version_ok(ptr, version, newversion);
         if (retval == -1)
             _fatal("You seem to be all patched up already!");
         else if (retval == 0)
