@@ -609,7 +609,7 @@ int main(int argc, char **argv)
     find_basedir(&argc, argv);
     retval = mojopatch_main(argc, argv);
     free(basedir);
-    return(retval);
+    return((retval == PATCHSUCCESS) ? 0 : 1);
 } /* unixmain */
 
 /* end of platform_unix.c ... */

@@ -39,8 +39,6 @@
 
 #define DEFAULT_PATCHFILENAME "default.mojopatch"
 
-#define PATCHERROR    0
-#define PATCHSUCCESS  1
 #define MOJOPATCHSIG "mojopatch " VERSION " (icculus@clutteredmind.org)\r\n"
 
 #define STATIC_STRING_SIZE 1024
@@ -2173,7 +2171,7 @@ int mojopatch_main(int argc, char **argv)
     _dlog("(Total running time: %ld seconds.)", time(NULL) - starttime);
 
     ui_deinit();
-    return((retval == PATCHSUCCESS) ? 0 : 1);
+    return(retval);
 } /* mojopatch_main */
 
 /* end of mojopatch.c ... */

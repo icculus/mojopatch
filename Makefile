@@ -24,7 +24,7 @@ PLATFORMDEF := -DPLATFORM_UNIX
 PLATFORMSRCS := platform_unix.c ui_stdio.c
 endif
 
-CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -Os
+CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -O0
 
 
 MOJOPATCHSRCS := mojopatch.c md5.c $(PLATFORMSRCS)

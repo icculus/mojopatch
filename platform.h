@@ -6,6 +6,9 @@
 extern "C" {
 #endif
 
+#define PATCHERROR    0
+#define PATCHSUCCESS  1
+
 #if PLATFORM_WIN32
 #  include <io.h>
 #  define PATH_SEP "\\"
