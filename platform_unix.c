@@ -10,6 +10,7 @@
 #include <sys/param.h>
 #include <errno.h>
 #include <assert.h>
+#include <sys/wait.h>
 
 #if USE_PTHREAD
 #include <pthread.h>
@@ -485,6 +486,42 @@ int show_and_install_readme(const char *fname, const char *text)
     system(cmd);
     return(1);
 } /* show_and_install_readme */
+
+
+#else  /* Regular old POSIX-compliant Unix... */
+
+int update_version(const char *ver)
+{
+    /*
+     * !!! FIXME: need some way to flag this install as updated...
+     * !!! FIXME:  maybe just leave unimplemented?
+     */
+    _fatal("Not implemented!");
+    return(0);
+} /* show_and_install_readme */
+
+int show_and_install_readme(const char *fname, const char *text)
+{
+    /*
+     * !!! FIXME: Can just dump to stdout? This should really be in the
+     * !!! FIXME:  UI modules...
+     */
+    _fatal("Not implemented!");
+    return(0);
+} /* show_and_install_readme */
+
+
+int chdir_by_identifier(const char *name, const char *str,
+                        const char *version, const char *newversion)
+{
+    /*
+     * !!! FIXME: need some way to find the program automatically...
+     * !!! FIXME:  maybe just prompt the user? Oh well.
+     */
+    _fatal("Not implemented!");
+    return(0);
+} /* chdir_by_identifier */
+
 #endif
 
 

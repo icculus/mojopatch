@@ -7,7 +7,7 @@ BINDIR := bin
 SRCDIR := .
 
 # must be "macosx" or "unix" or "win32" ... not all necessarily work right now.
-platform := macosx
+platform := unix
 
 # Add zlib support? Will compress all ADD/ADDORREPLACE/PATCH operations.
 # If you're going to compress the patch anyhow, this might not be wanted.

@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+#include <ctype.h>
 
 #include "platform.h"
 #include "ui.h"
@@ -61,7 +62,44 @@ void ui_total_progress(int percent)
 
 void ui_status(const char *str)
 {
+    printf("Current operation: %s\n", str);
 } /* ui_status */
+
+
+int ui_prompt_yn(const char *question)
+{
+    int c;
+    while (1)
+    {
+        printf("%s", question);
+        c = toupper(getchar());
+        if (c == 'N')
+            return(0);
+        else if ((c == 'Y') || (c == '\r') || (c == '\n'))
+            return(1);
+        printf("\n");
+    } /* while */
+
+    return(1);
+} /* ui_prompt_yn */
+
+
+int ui_prompt_ny(const char *question)
+{
+    int c;
+    while (1)
+    {
+        printf("%s", question);
+        c = toupper(getchar());
+        if (c == 'Y')
+            return 1;
+        else if ((c == 'N') || (c == '\r') || (c == '\n'))
+            return 0;
+        printf("\n");
+    } /* while */
+
+    return(0);
+} /* ui_prompt_ny */
 
 /* end of ui_stdio.h ... */
 
