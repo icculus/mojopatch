@@ -157,6 +157,7 @@ static int debug = 0;
 static int interactive = 0;
 static int replace = 0;
 static int appending = 0;
+static int alwaysadd = 0;
 static PatchCommands command = COMMAND_NONE;
 
 static const char *patchfile = NULL;
@@ -1294,6 +1295,15 @@ static int put_patch(SerialArchive *ar, const char *fname1, const char *fname2)
 	if (md5sums_match(fname1, fname2, ops.patch.md5_1, ops.patch.md5_2))
         return(PATCHSUCCESS);
 
+    if (alwaysadd)  /* add it instead of patch it... */
+    {
+        int origreplace = replace;
+        replace = 1;  /* must ADDORREPLACE, as file will definitely exist. */
+        retval = put_add(ar, fname2);
+        replace = origreplace;  /* reset original value. */
+        return(retval);
+    } /* if */
+
     _current_operation("PATCH %s", final_path_element(fname2));
     _log("PATCH %s", fname2);
 
@@ -1960,6 +1970,7 @@ static int do_usage(const char *argv0)
     _log("    --newversion (Product version to patch up to)");
     _log("    --replace (specify ADDs overwrite, at create time or override)");
     _log("    --append (creation appends to existing patchfile)");
+    _log("    --alwaysadd (put ADDs instead of PATCHs into the patchfile)");
     _log("    --readme (README filename to display/install)");
     _log("    --renamedir (What patched dir should be called)");
     _log("    --titlebar (What UI's window's titlebar should say)");
@@ -2026,6 +2037,8 @@ static int parse_cmdline(int argc, char **argv)
             replace = 1;
         else if (strcmp(argv[i], "--append") == 0)
             appending = 1;
+        else if (strcmp(argv[i], "--alwaysadd") == 0)
+            alwaysadd = 1;
         else if (strcmp(argv[i], "--product") == 0)
             make_static_string(header.product, argv[++i]);
         else if (strcmp(argv[i], "--identifier") == 0)
@@ -2095,6 +2108,7 @@ static int parse_cmdline(int argc, char **argv)
         _dlog("Interactive mode %senabled.", (interactive) ? "" : "NOT ");
         _dlog("ADDs are %spermitted to REPLACE.", (replace) ? "" : "NOT ");
         _dlog("Created patch will %sbe appended.", (appending) ? "" : "NOT ");
+        _dlog("%sse ADDs instead of PATCHs.", (alwaysadd) ? "U" : "Do NOT u");
         _dlog("command == (%d).", (int) command);
         _dlog("(%d) nonoptions:", nonoptcount);
         for (i = 0; i < nonoptcount; i++)
