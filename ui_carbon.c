@@ -163,7 +163,7 @@ int ui_prompt_ny(const char *question)
 } /* ui_prompt_ny */
 
 
-int manually_locate_product(char *buf, size_t bufsize)
+int manually_locate_product(const char *name, char *buf, size_t bufsize)
 {
     NavDialogCreationOptions dlgopt;
     NavDialogRef dlg;
@@ -175,9 +175,18 @@ int manually_locate_product(char *buf, size_t bufsize)
     OSStatus rc;
     int retval = 0;
     int yn;
+    const char *promptfmt = "We can't find your \"%s\" installation."
+                            " Would you like to show us where it is?";
+    char *promptstr = alloca(strlen(name) + strlen(promptfmt) + 1);
 
-    yn = ui_prompt_yn("We can't find your installation."
-                      " Would you like to show us where it is?");
+    if (promptstr == NULL)
+    {
+        _fatal("Out of memory.");
+        return(0);
+    } /* if */
+    sprintf(promptstr, promptfmt, name);
+
+    yn = ui_prompt_yn(promptstr);
     if (!yn)
     {
         _log("User chose not to manually locate installation");

@@ -375,9 +375,9 @@ update_version_bailed:
 } /* update_version */
 
 
-int manually_locate_product(char *buf, size_t bufsize);
+int manually_locate_product(const char *name, char *buf, size_t bufsize);
 
-int chdir_by_identifier(const char *str, const char *version)
+int chdir_by_identifier(const char *name, const char *str, const char *version)
 {
     char buf[MAXPATHLEN];
     Boolean b;
@@ -401,7 +401,7 @@ int chdir_by_identifier(const char *str, const char *version)
     else
     {
         _log("Couldn't find product. Perhaps it isn't installed?");
-        if (!manually_locate_product(buf, sizeof (buf)))
+        if (!manually_locate_product(name, buf, sizeof (buf)))
         {
             _fatal("We can't patch the product if we can't find it!");
             return(0);
