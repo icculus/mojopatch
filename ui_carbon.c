@@ -10,6 +10,7 @@
 static WindowPtr window;
 static ControlRef progress;
 static ControlRef status;
+static int carbon_ui_initialized = 0;
 
 /* user interface stuff you implement. */
 int ui_init(void)
@@ -20,18 +21,38 @@ int ui_init(void)
     OSStatus err;
     Boolean b = TRUE;
 
-    CreateNibReference( CFSTR("mojopatch"), &nibRef );
+    if (carbon_ui_initialized)  /* already initialized? */
+        return(1);
+
+    if (CreateNibReference(CFSTR("mojopatch"), &nibRef) != noErr)
+        return(0);  /* usually .nib isn't found. */
+
     err = SetMenuBarFromNib(nibRef, CFSTR("MenuBar"));
-    CreateWindowFromNib( nibRef, CFSTR("MainWindow"), &window );
+    if (err == noErr)
+        err = CreateWindowFromNib(nibRef, CFSTR("MainWindow"), &window);
     DisposeNibReference( nibRef );
-    GetControlByID(window, &statusID, &status);
-    GetControlByID(window, &progressID, &progress);
-    ShowWindow( window );
-    ActivateWindow(window, TRUE);
-    SetControlData(progress, kControlEntireControl,
-                    kControlProgressBarAnimatingTag,
-                    sizeof (b), &b);
-    return(1);
+
+    if (err == noErr)
+        err = GetControlByID(window, &statusID, &status);
+
+    if (err == noErr)
+        err = GetControlByID(window, &progressID, &progress);
+
+    if (err == noErr)
+    {
+        ShowWindow(window);
+        err = ActivateWindow(window, TRUE);
+    } /* if */
+
+    if (err == noErr)
+    {
+        err = SetControlData(progress, kControlEntireControl,
+                              kControlProgressBarAnimatingTag,
+                              sizeof (b), &b);
+    } /* if */
+
+    carbon_ui_initialized = 1;
+    return(err == noErr);
 } /* ui_init */
 
 
@@ -46,13 +67,19 @@ void ui_title(const char *str)
 void ui_deinit(void)
 {
     /* !!! FIXME */
+    /* carbon_ui_initialized = 0; */
 } /* ui_deinit */
 
 
 void ui_pump(void)
 {
     EventRef theEvent;
-    EventTargetRef theTarget = GetEventDispatcherTarget();
+    EventTargetRef theTarget;
+
+    if (!carbon_ui_initialized)
+        return;
+
+    theTarget = GetEventDispatcherTarget();
     if (ReceiveNextEvent(0, NULL, 0, true, &theEvent) == noErr)
     {
         SendEventToEventTarget(theEvent, theTarget);
@@ -196,7 +223,10 @@ int manually_locate_product(char *buf, size_t bufsize)
 
 void ui_fatal(const char *str)
 {
-    do_msgbox(str, kAlertStopAlert, NULL, NULL);
+    if (!carbon_ui_initialized)
+        fprintf(stderr, "FATAL ERROR: %s\n", str);
+    else
+        do_msgbox(str, kAlertStopAlert, NULL, NULL);
 } /* ui_fatal */
 
 
