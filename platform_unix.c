@@ -295,6 +295,7 @@ static int parse_info_dot_plist(const char *ident,
     long fsize;
     int retval = 0;
     FILE *io = NULL;
+    int knowver = 0;
 
     if ( !get_file_size(fname, &fsize) ) goto parse_info_plist_bailed;
     if ( (mem = malloc(fsize + 1)) == NULL ) goto parse_info_plist_bailed;
@@ -325,6 +326,7 @@ static int parse_info_dot_plist(const char *ident,
     ptr = find_info_plist_version(mem);
     if (ptr != NULL)
     {
+        knowver = 1;
         retval = version_ok(ptr, version);
         if (retval == -1)
             _fatal("You seem to be all patched up already!");
@@ -340,7 +342,7 @@ parse_info_plist_bailed:
     if (io != NULL)
         fclose(io);
 
-    if (retval == 0) _fatal("Can't determine product's installed version.");
+    if (!knowver) _fatal("Can't determine product's installed version.");
     return(retval);
 } /* parse_info_dot_plist */
 
