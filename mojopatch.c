@@ -47,7 +47,7 @@
 #include "ui.h"
 #include "md5.h"
 
-#define VERSION "0.0.399999"
+#define VERSION "0.0.5"
 
 #define DEFAULT_PATCHFILENAME "default.mojopatch"
 
