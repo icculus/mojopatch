@@ -581,8 +581,38 @@ int version_ok(const char *ver, const char *allowed_ver)
     if (*allowed_ver == '\0')
         return 1;  /* No specified version? Anything is okay, then. */
 
+    if (strcmp(allowed_ver, ver) == 0)
+        return -1;  /* all patched up. */
+
     buf = (char *) alloca(strlen(allowed_ver) + 1);
     strcpy(buf, allowed_ver);
+
+    const char *lessThan = "less than ";
+    const size_t lessThanLen = strlen(lessThan);
+    if (strncmp(buf, lessThan, lessThanLen) == 0)
+    {
+        char *endptr = NULL;
+        double dver;
+        double dallow;
+        ptr = buf + lessThanLen;
+        *ptr = '\0';
+        ptr++;
+
+        dver = strtod(ver, &endptr);
+        if (endptr == ver)
+            return 0;
+
+        dallow = strtod(ptr, &endptr);
+        if (endptr == ptr)
+            return 0;
+
+        if (dver < dallow)
+            return(1);
+        else if (dver == dallow)
+            return(-1);
+
+        return(0);
+    } /* if */
 
     while ((ptr = strstr(buf, " or ")) != NULL)
     {

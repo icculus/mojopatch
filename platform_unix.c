@@ -329,21 +329,13 @@ static int parse_info_dot_plist(const char *ident,
     ptr = find_info_plist_version(mem);
     if (ptr != NULL)
     {
-        if (version_ok(ptr, version))
-            retval = 1;
-        else
+        retval = version_ok(ptr, version);
+        if (retval == -1)
+            _fatal("You seem to be all patched up already!");
+        else if (retval == 0)
         {
-            if (strcmp(ptr, newversion) == 0)
-            {
-                _fatal("You seem to be all patched up already!");
-                retval = -1;
-            } /* if */
-            else
-            {
-                _fatal("This patch applies to version '%s', but you have '%s'.",
-                        version, ptr);
-                retval = 0;
-            } /* else */
+            _fatal("This patch applies to version '%s', but you have '%s'.",
+                    version, ptr);
         } /* else */
     } /* if */
 
