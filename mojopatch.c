@@ -2037,9 +2037,7 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
     {
         int rc = chdir_by_identifier(h->product, h->identifier,
                                      h->version, h->newversion);
-        if (rc == 0)
-            return(PATCHERROR);
-        else if (rc == -1)
+        if (rc != 1)
             skip_patch = 1;
     } /* if */
 
