@@ -13,6 +13,7 @@ void ui_pump(void);
 void ui_add_to_log(const char *str, int debugging);
 void ui_fatal(const char *str);
 void ui_success(const char *str);
+void ui_msgbox(const char *str);
 void ui_total_progress(int percent);
 void ui_status(const char *str);
 void ui_title(const char *str);

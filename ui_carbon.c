@@ -248,6 +248,12 @@ void ui_success(const char *str)
 } /* ui_success */
 
 
+void ui_msgbox(const char *str)
+{
+    do_msgbox(str, kAlertNoteAlert, NULL, NULL);
+} /* ui_msgbox */
+
+
 void ui_total_progress(int percent)
 {
     static int lastpercent = -1;
