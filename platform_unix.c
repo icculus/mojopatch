@@ -672,9 +672,11 @@ static void find_basedir(int *argc, char **argv)
         argv[1] = NULL;
 
         /* Now that we know where xdelta will be, chdir out of AppBundle... */
-        ptr = strstr(realbuf, "/Contents/MacOS");
+        /* !!! FIXME: Fails if there are more than one of these in the string... */
+        ptr = strstr(realbuf, "/Contents/MacOS/");
         if (ptr != NULL)
         {
+            ptr++;  /* keep a '/' at the end of the string... */
             *ptr = '\0';
             chdir(realbuf);
         } /* if */
