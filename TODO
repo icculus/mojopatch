@@ -3,4 +3,9 @@
 - Move confirm() to UI abstraction.
 - Integrate xdelta into single binary?
 - Lots of tests for dir/notdir or file/notfile...no symlinks support, etc.
+- serialization of patchfile.
+- Standardize datatypes.
+- Make everything fit in 80 columns...
+- Split mojopatch.c into multiple files.
+
 
