@@ -25,7 +25,10 @@ int ui_init(void)
         return(1);
 
     if (CreateNibReference(CFSTR("mojopatch"), &nibRef) != noErr)
+    {
+        fprintf(stderr, "MOJOPATCH: You probably don't have a .nib file!\n");
         return(0);  /* usually .nib isn't found. */
+    } /* if */
 
     err = SetMenuBarFromNib(nibRef, CFSTR("MenuBar"));
     if (err == noErr)
