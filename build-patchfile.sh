@@ -51,7 +51,7 @@ rm -rf x.app
 --titlebar "NWN Shadows of Undrentide Expansion Pack" \
 "/Users/icculus/Desktop/Shadows of Undrentide Installer.app/default.mojopatch" \
 "./tmp" \
-"/Users/icculus/Desktop/XP1-1.62.8047e"
+"/Users/icculus/Desktop/XP1-1.62.8047f"
 
 # Add XP2 data to the other patchfile...
 ./MojoPatch.app/Contents/MacOS/mojopatch  --create --alwaysadd --zliblevel 9 \
@@ -61,7 +61,7 @@ rm -rf x.app
 --titlebar "NWN Hordes of the Underdark Expansion Pack" \
 "/Users/icculus/Desktop/Hordes of the Underdark Installer.app/default.mojopatch" \
 "./tmp" \
-"/Users/icculus/Desktop/XP2-1.62.8047e"
+"/Users/icculus/Desktop/XP2-1.62.8047f"
 
 rmdir tmp
 
