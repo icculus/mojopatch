@@ -6,9 +6,18 @@ LINKER := gcc
 BINDIR := bin
 SRCDIR := .
 
+# must be "macosx" or "unix" or "win32" ... not all necessarily work right now.
 platform := macosx
+
+# Add zlib support? Will compress all ADD/ADDORREPLACE/PATCH operations.
+# If you're going to compress the patch anyhow, this might not be wanted.
 use_zlib := true
+
+# Unix/Mac will try fork() if this is false.
 use_pthread := false
+
+
+# you probably shouldn't touch anything below this line.
 
 ifeq ($(strip $(platform)),macosx)
 PLATFORMDEF := -DPLATFORM_UNIX -DPLATFORM_MACOSX
@@ -22,11 +31,8 @@ PLATFORMSRCS := platform_win32.c ui_stdio.c
 endif
 
 ifeq ($(strip $(platform)),unix)
-PLATFORMDEF := -DPLATFORM_UNIX
-PLATFORMSRCS := platform_unix.c ui_stdio.c
-
-# !!! FIXME: This is forced on for now.
-use_pthread := true
+  PLATFORMDEF := -DPLATFORM_UNIX
+  PLATFORMSRCS := platform_unix.c ui_stdio.c
 endif
 
 CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -O0
@@ -37,8 +43,10 @@ ifeq ($(strip $(use_zlib)),true)
 endif
 
 ifeq ($(strip $(use_pthread)),true)
-  LDFLAGS += -lpthread
   CFLAGS += -DUSE_PTHREAD=1
+  ifneq ($(strip $(platform)),macosx)
+    LDFLAGS += -lpthread
+  endif
 endif
 
 MOJOPATCHSRCS := mojopatch.c md5.c $(PLATFORMSRCS)

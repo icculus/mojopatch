@@ -11,11 +11,6 @@
 #include <errno.h>
 #include <assert.h>
 
-/* !!! FIXME: Why aren't we using fork(), anyhow? */
-#if !USE_PTHREAD
-#error not implemented yet.
-#endif
-
 #if USE_PTHREAD
 #include <pthread.h>
 #endif
@@ -520,19 +515,44 @@ static void *spawn_thread(void *arg)
 
 int spawn_xdelta(const char *cmdline)
 {
-#if !USE_PTHREAD
-    _fatal("No pthread support!");
-    return(0);
-#else
-    pthread_t thr;
-    void *rc;
     const char *binname = "xdelta";
     char *cmd = alloca(strlen(cmdline) + strlen(basedir) + strlen(binname) + 2);
     if (!cmd)
         return(0);
 
     sprintf(cmd, "\"%s%s\" %s", basedir, binname, cmdline);
+
+#if !USE_PTHREAD
+    int rc = 0;
+    pid_t pid = fork();
+    if (pid == -1)
+    {
+        int e = errno;
+        _fatal("fork() failed: %d (%s)", e, strerror(e));
+        return(0);
+    } /* if */
+
+    else if (pid == 0)   // child process.
+    {
+        rc = spawn_thread(cmd);
+        exit(1);  /* !!! FIXME    *((int *) rc) == 0 ); */
+    } /* else if */
+
+    else
+    {
+        while (waitpid(pid, &rc, WNOHANG) == 0)
+        {
+            ui_pump();
+            usleep(10000);
+        } /* while */
+        return(1);
+    } /* else */
+#else
+    pthread_t thr;
+    void *rc;
+
     thread_alive = 1;
+
     if (pthread_create(&thr, NULL, spawn_thread, cmd) != 0)
         return(0);
 
