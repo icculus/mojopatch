@@ -158,6 +158,7 @@ static int interactive = 0;
 static int replace = 0;
 static int appending = 0;
 static int alwaysadd = 0;
+static int quietonsuccess = 0;
 static PatchCommands command = COMMAND_NONE;
 
 static const char *patchfile = NULL;
@@ -1782,7 +1783,8 @@ static int create_patchfile(void)
         _fatal("THE FILE [%s] IS LIKELY INCOMPLETE. DO NOT USE!", patchfile);
     else
     {
-        ui_success("Patchfile successfully created.");
+        if (!quietonsuccess)
+            ui_success("Patchfile successfully created.");
         _log("%ld bytes in the file [%s].", fsize, patchfile);
     } /* else */
 
@@ -1938,7 +1940,7 @@ static int do_patching(void)
 
     retval = PATCHSUCCESS;
     ui_total_progress(100);
-    if (!info_only())
+    if ( (!info_only()) && (!quietonsuccess) )
         ui_success("Patching successful!");
 
 do_patching_done:
@@ -1971,6 +1973,7 @@ static int do_usage(const char *argv0)
     _log("    --replace (specify ADDs overwrite, at create time or override)");
     _log("    --append (creation appends to existing patchfile)");
     _log("    --alwaysadd (put ADDs instead of PATCHs into the patchfile)");
+    _log("    --quietonsuccess (Don't do msgbox on successful finish)");
     _log("    --readme (README filename to display/install)");
     _log("    --renamedir (What patched dir should be called)");
     _log("    --titlebar (What UI's window's titlebar should say)");
@@ -2039,6 +2042,8 @@ static int parse_cmdline(int argc, char **argv)
             appending = 1;
         else if (strcmp(argv[i], "--alwaysadd") == 0)
             alwaysadd = 1;
+        else if (strcmp(argv[i], "--quietonsuccess") == 0)
+            quietonsuccess = 1;
         else if (strcmp(argv[i], "--product") == 0)
             make_static_string(header.product, argv[++i]);
         else if (strcmp(argv[i], "--identifier") == 0)
@@ -2109,6 +2114,7 @@ static int parse_cmdline(int argc, char **argv)
         _dlog("ADDs are %spermitted to REPLACE.", (replace) ? "" : "NOT ");
         _dlog("Created patch will %sbe appended.", (appending) ? "" : "NOT ");
         _dlog("%sse ADDs instead of PATCHs.", (alwaysadd) ? "U" : "Do NOT u");
+        _dlog("%seport success in UI", (quietonsuccess) ? "Don't r" : "R");
         _dlog("command == (%d).", (int) command);
         _dlog("(%d) nonoptions:", nonoptcount);
         for (i = 0; i < nonoptcount; i++)
