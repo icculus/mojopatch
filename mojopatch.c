@@ -2172,6 +2172,7 @@ int mojopatch_main(int argc, char **argv)
     unlink(patchtmpfile);  /* just in case. */
     unlink(patchtmpfile2); /* just in case. */
 
+    _log("MojoPatch %s shutting down.", VERSION);
     _dlog("(Total running time: %ld seconds.)", time(NULL) - starttime);
 
     ui_deinit();
