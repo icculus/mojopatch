@@ -77,6 +77,7 @@ typedef struct
     char readmefname[STATIC_STRING_SIZE];
     char *readmedata;
     char renamedir[STATIC_STRING_SIZE];
+    char titlebar[STATIC_STRING_SIZE];
 } PatchHeader;
 
 typedef enum
@@ -306,6 +307,7 @@ static int serialize_header(SerialArchive *ar, PatchHeader *h)
     if (serialize_static_string_if_empty(ar, h->readmefname))
     if (serialize_asciz_string(ar, &h->readmedata))
     if (serialize_static_string_if_empty(ar, h->renamedir))
+    if (serialize_static_string_if_empty(ar, h->titlebar))
         return(1);
 
     return(0);
@@ -1784,16 +1786,23 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
     _log("Patch to version: \"%s\".", h->newversion);
     _log("Readme: \"%s\".", *h->readmefname ? h->readmefname : "(none)");
     _log("Renamedir: \"%s\".", *h->renamedir ? h->renamedir : "(none)");
+    _log("UI titlebar: \"%s\".", *h->titlebar ? h->titlebar : "(blank)");
 
-    /* Fill in a default product name if needed. */
-    if (*h->product == '\0')
+    /* Fill in a default titlebar if needed. */
+    if (*h->titlebar == '\0')
     {
-        char defstr[128];
-        snprintf(defstr, sizeof (defstr) - 1, "MojoPatch %s", VERSION);
-        make_static_string(h->product, defstr);
+        if (*h->product != '\0')
+            make_static_string(h->titlebar, h->product);
+        else
+        {
+            char defstr[128];
+            snprintf(defstr, sizeof (defstr) - 1, "MojoPatch %s", VERSION);
+            make_static_string(h->titlebar, defstr);
+        } /* else */
+        _dlog("Defaulted UI titlebar to [%s].", h->titlebar);
     } /* if */
 
-    ui_title(h->product);
+    ui_title(h->titlebar);
 
     if (!info_only())
     {
@@ -1888,13 +1897,14 @@ static int do_usage(const char *argv0)
     _log("   or: %s <file.mojopatch>", argv0);
     _log("");
     _log("  You may also specify:");
-    _log("      --product (Product name for titlebar)");
+    _log("      --product (Product name)");
     _log("      --identifier (Product identifier for locating installation)");
     _log("      --version (Product version to patch against)");
     _log("      --newversion (Product version to patch up to)");
     _log("      --replace (AT CREATE TIME, specify ADDs can overwrite)");
     _log("      --readme (README filename to display/install)");
     _log("      --renamedir (What patched dir should be called)");
+    _log("      --titlebar (What UI's window's titlebar should say)");
     _log("      --ignore (Ignore specific files/dirs)");
     _log("      --confirm (Make process confirm each step)");
     _log("      --debug (spew debugging output)");
@@ -1968,6 +1978,8 @@ static int parse_cmdline(int argc, char **argv)
             make_static_string(header.readmefname, argv[++i]);
         else if (strcmp(argv[i], "--renamedir") == 0)
             make_static_string(header.renamedir, argv[++i]);
+        else if (strcmp(argv[i], "--titlebar") == 0)
+            make_static_string(header.titlebar, argv[++i]);
         else if (strcmp(argv[i], "--ignore") == 0)
         {
             ignorecount++;
