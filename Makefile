@@ -35,7 +35,7 @@ ifeq ($(strip $(platform)),unix)
   PLATFORMSRCS := platform_unix.c ui_stdio.c
 endif
 
-#CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -O0
+#CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -O0 -DDEBUG=1 -D_DEBUG=1
 CFLAGS := $(PLATFORMDEF) -Wall -fsigned-char -fomit-frame-pointer -Os
 
 ifeq ($(strip $(use_zlib)),true)
