@@ -47,7 +47,7 @@
 #include "ui.h"
 #include "md5.h"
 
-#define VERSION "0.0.3"
+#define VERSION "0.0.399999"
 
 #define DEFAULT_PATCHFILENAME "default.mojopatch"
 
@@ -55,12 +55,103 @@
 #define PATCHSUCCESS  1
 #define MOJOPATCHSIG "mojopatch " VERSION " (icculus@clutteredmind.org)\r\n"
 
-#define OPERATION_DELETE          27
-#define OPERATION_DELETEDIRECTORY 28
-#define OPERATION_ADD             29
-#define OPERATION_ADDDIRECTORY    30
-#define OPERATION_PATCH           31
-#define OPERATION_REPLACE         32
+#define STATIC_STRING_SIZE 1024
+
+static void make_static_string(char *statstr, const char *str)
+{
+    size_t len = strlen(str);
+    if (len >= STATIC_STRING_SIZE)
+        _fatal("Unexpected data in make_static_string()");
+    else
+        strcpy(statstr, str);
+} /* make_static_string */
+
+
+typedef struct
+{
+    char signature[sizeof (MOJOPATCHSIG)];
+    char product[STATIC_STRING_SIZE];
+    char identifier[STATIC_STRING_SIZE];
+    char version[STATIC_STRING_SIZE];
+    char newversion[STATIC_STRING_SIZE];
+    char readmefname[STATIC_STRING_SIZE];
+    char *readmedata;
+    char renamedir[STATIC_STRING_SIZE];
+} PatchHeader;
+
+typedef enum
+{
+    OPERATION_DELETE = 0,
+    OPERATION_DELETEDIRECTORY,
+    OPERATION_ADD,
+    OPERATION_ADDDIRECTORY,
+    OPERATION_PATCH,
+    OPERATION_REPLACE,
+    OPERATION_DONE,
+    OPERATION_TOTAL /* must be last! */
+} OperationType;
+
+typedef struct
+{
+    OperationType operation;
+    char fname[STATIC_STRING_SIZE];
+} DeleteOperation;
+
+typedef struct
+{
+    OperationType operation;
+    char fname[STATIC_STRING_SIZE];
+} DeleteDirOperation;
+
+typedef struct
+{
+    OperationType operation;
+    char fname[STATIC_STRING_SIZE];
+    size_t fsize;
+    md5_byte_t md5[16];
+    mode_t mode;
+} AddOperation;
+
+typedef struct
+{
+    OperationType operation;
+    char fname[STATIC_STRING_SIZE];
+    mode_t mode;
+} AddDirOperation;
+
+typedef struct
+{
+    OperationType operation;
+    char fname[STATIC_STRING_SIZE];
+    md5_byte_t md5_1[16];
+    md5_byte_t md5_2[16];
+    size_t fsize;
+    size_t deltasize;
+    mode_t mode;
+} PatchOperation;
+
+typedef struct
+{
+    OperationType operation;
+} DoneOperation;
+
+typedef union
+{
+    OperationType operation;
+    DeleteOperation del;
+    DeleteDirOperation deldir;
+    AddOperation add;
+    AddDirOperation adddir;
+    PatchOperation patch;
+    AddOperation replace;
+    DoneOperation done;
+} Operations;
+
+typedef struct
+{
+    FILE *io;
+    int reading;
+} SerialArchive;
 
 typedef enum
 {
@@ -71,6 +162,7 @@ typedef enum
 
     COMMAND_TOTAL
 } PatchCommands;
+
 
 static int debug = 0;
 static int interactive = 0;
@@ -84,12 +176,7 @@ static const char *dir2 = NULL;
 static char *patchtmpfile = NULL;
 static char *patchtmpfile2 = NULL;
 
-static char product[128] = {0};
-static char identifier[128] = {0};
-static char version[128] = {0};
-static char newversion[128] = {0};
-static char readme[128] = {0};
-static char renamedir[128] = {0};
+static PatchHeader header;
 
 static char **ignorelist = NULL;
 static int ignorecount = 0;
@@ -97,6 +184,303 @@ static int ignorecount = 0;
 static unsigned int maxxdeltamem = 128;  /* in megabytes. */
 
 static unsigned char iobuf[512 * 1024];
+
+
+static int serialize(SerialArchive *ar, void *val, size_t size)
+{
+    int rc;
+    if (ar->reading)
+        rc = fread(val, size, 1, ar->io);
+    else
+        rc = fwrite(val, size, 1, ar->io);
+
+    if (rc <= 0)
+    {
+        _fatal("%s error: %s.", ar->reading ? "Read":"Write", strerror(errno));
+        return(0);
+    } /* if */
+
+    return(1);
+} /* serialize */
+
+
+#define SERIALIZE(ar, x) serialize(ar, &x, sizeof (x))
+
+static int serialize_static_string(SerialArchive *ar, char *val)
+{
+    size_t len;
+
+    if (!SERIALIZE(ar, len))
+        return(0);
+
+    if (len >= STATIC_STRING_SIZE)
+    {
+        _fatal("Bogus string data in patchfile.");
+        return(0);
+    } /* if */
+
+    val[len] = 0;
+    return(serialize(ar, &val, len));
+} /* serialize_static_string */
+
+
+/*
+ * This will only overwrite (val)'s contents if (val) is empty ("!val[0]").
+ *  Mostly, this lets us optionally override patchfiles from the command line.
+ *  Writing is done, regardless of string's state.
+ */
+static int serialize_static_string_if_empty(SerialArchive *ar, char *val)
+{
+    if ((!ar->reading) || (val[0] == '\0'))
+        return(serialize_static_string(ar, val));
+    else
+    {
+        char buffer[STATIC_STRING_SIZE];
+        return(serialize_static_string(ar, buffer));  /* throw away data */
+    } /* else */
+} /* serialize_static_string_if_empty */
+
+
+static int serialize_asciz_string(SerialArchive *ar, char **_buffer)
+{
+    char *buffer = *_buffer;
+    size_t i = 0;
+    size_t allocated = 0;
+    int ch;
+
+    if (!ar->reading)
+        return(serialize(ar, buffer, strlen(buffer) + 1));
+
+    buffer = NULL;
+
+    /* read an arbitrary amount, allocate storage... */
+    do
+    {
+        if (i <= allocated)
+        {
+            allocated += 128;
+            buffer = realloc(buffer, allocated);
+            if (buffer == NULL)
+            {
+                _fatal("Out of memory.");
+                return(0);
+            } /* if */
+        } /* if */
+
+        ch = fgetc(ar->io);
+        if (ch == EOF)
+        {
+            if (feof(ar->io))
+                _fatal("Unexpected EOF during read.");
+            else
+                _fatal("Error during read: %s.", strerror(errno));
+            return(PATCHERROR);
+        } /* if */
+
+        buffer[i] = (char) ch;
+    } while (buffer[i++] != '\0');
+
+    *_buffer = buffer;
+    return(1);
+} /* serialize_asciz_string */
+
+
+static int serialize_header(SerialArchive *ar, PatchHeader *h)
+{
+    if (!SERIALIZE(ar, h->signature))
+        return(0);
+
+    if (memcmp(h->signature, MOJOPATCHSIG, sizeof (h->signature)) != 0)
+    {
+        h->signature[sizeof (h->signature) - 1] = '\0';  /* just in case. */
+        _fatal("[%s] is not a compatible mojopatch file.", patchfile);
+        _log("signature is: %s.", h->signature);
+        _log("    expected: %s.", MOJOPATCHSIG);
+        return(PATCHERROR);
+    } /* if */
+
+    if (serialize_static_string_if_empty(ar, h->product))
+    if (serialize_static_string_if_empty(ar, h->identifier))
+    if (serialize_static_string_if_empty(ar, h->version))
+    if (serialize_static_string_if_empty(ar, h->newversion))
+    if (serialize_static_string_if_empty(ar, h->readmefname))
+    if (serialize_asciz_string(ar, &h->readmedata))
+    if (serialize_static_string_if_empty(ar, h->renamedir))
+        return(1);
+
+    return(0);
+} /* serialize_header */
+
+static int serialize_delete_op(SerialArchive *ar, void *d)
+{
+    DeleteOperation *del = (DeleteOperation *) d;
+    assert(del->operation == OPERATION_DELETE);
+    if (serialize_static_string(ar, del->fname))
+        return(1);
+
+    return(0);
+} /* serialize_delete_op */
+
+static int serialize_deldir_op(SerialArchive *ar, void *d)
+{
+    DeleteDirOperation *deldir = (DeleteDirOperation *) d;
+    assert(deldir->operation == OPERATION_DELETEDIRECTORY);
+    if (serialize_static_string(ar, deldir->fname))
+        return(1);
+
+    return(0);
+} /* serialize_deldir_op */
+
+static int serialize_add_op(SerialArchive *ar, void *d)
+{
+    AddOperation *add = (AddOperation *) d;
+    assert((add->operation == OPERATION_ADD) ||
+           (add->operation == OPERATION_REPLACE));
+    if (serialize_static_string(ar, add->fname))
+    if (SERIALIZE(ar, add->fsize))
+    if (SERIALIZE(ar, add->md5))
+    if (SERIALIZE(ar, add->mode))
+        return(1);
+
+    return(0);
+} /* serialize_add_op */
+
+static int serialize_adddir_op(SerialArchive *ar, void *d)
+{
+    AddDirOperation *adddir = (AddDirOperation *) d;
+    assert(adddir->operation == OPERATION_ADDDIRECTORY);
+    if (serialize_static_string(ar, adddir->fname))
+    if (SERIALIZE(ar, adddir->mode))
+        return(1);
+
+    return(0);
+} /* serialize_adddir_op */
+
+static int serialize_patch_op(SerialArchive *ar, void *d)
+{
+    PatchOperation *patch = (PatchOperation *) d;
+    assert(patch->operation == OPERATION_PATCH);
+    if (serialize_static_string(ar, patch->fname))
+    if (SERIALIZE(ar, patch->md5_1))
+    if (SERIALIZE(ar, patch->md5_1))
+    if (SERIALIZE(ar, patch->fsize))
+    if (SERIALIZE(ar, patch->deltasize))
+    if (SERIALIZE(ar, patch->mode))
+        return(1);
+
+    return(0);
+} /* serialize_patch_op */
+
+static int serialize_replace_op(SerialArchive *ar, void *d)
+{
+    AddOperation *add = (AddOperation *) d;
+    assert(add->operation == OPERATION_REPLACE);
+    return(serialize_add_op(ar, d));
+} /* serialize_replace_op */
+
+static int serialize_done_op(SerialArchive *ar, void *d)
+{
+    DoneOperation *done = (DoneOperation *) d;
+    assert(done->operation == OPERATION_DONE);
+    return(1);
+} /* serialize_done_op */
+
+
+typedef int (*OpSerializers)(SerialArchive *ar, void *data);
+static OpSerializers serializers[OPERATION_TOTAL] =
+{
+    /* Must match OperationType order! */
+    serialize_delete_op,
+    serialize_deldir_op,
+    serialize_add_op,
+    serialize_adddir_op,
+    serialize_patch_op,
+    serialize_replace_op,
+    serialize_done_op,
+};
+
+
+
+static int handle_delete_op(SerialArchive *ar, OperationType op, void *data);
+static int handle_deldir_op(SerialArchive *ar, OperationType op, void *data);
+static int handle_add_op(SerialArchive *ar, OperationType op, void *data);
+static int handle_adddir_op(SerialArchive *ar, OperationType op, void *data);
+static int handle_patch_op(SerialArchive *ar, OperationType op, void *data);
+static int handle_replace_op(SerialArchive *ar, OperationType op, void *data);
+
+typedef int (*OpHandlers)(SerialArchive *ar, OperationType op, void *data);
+static OpHandlers operation_handlers[OPERATION_TOTAL] =
+{
+    /* Must match OperationType order! */
+    handle_delete_op,
+    handle_deldir_op,
+    handle_add_op,
+    handle_adddir_op,
+    handle_patch_op,
+    handle_replace_op,
+};
+
+
+
+static int serialize_operation(SerialArchive *ar, Operations *ops)
+{
+    if (!SERIALIZE(ar, ops->operation))
+        return(0);
+
+    if ((ops->operation < 0) || (ops->operation >= OPERATION_TOTAL))
+    {
+        _fatal("Invalid operation in patch file.");
+        return(0);
+    } /* if */
+
+    return(serializers[ops->operation](ar, &ops));
+} /* serialize_operation */
+
+
+static int open_serialized_archive(SerialArchive *ar,
+                                   const char *fname,
+                                   int is_reading,
+                                   int *sizeok,
+                                   size_t *file_size)
+{
+    memset(ar, '\0', sizeof (*ar));
+    if (strcmp(fname, "-") == 0)  /* read from stdin? */
+        ar->io = (is_reading) ? stdin : stdout;
+    else
+	{
+        if (file_size != NULL)
+        {
+            int tmp = get_file_size(patchfile, file_size);
+            if (sizeok != NULL)
+                *sizeok = tmp;
+        } /* if */
+
+        ar->io = fopen(patchfile, is_reading ? "rb" : "wb");
+        if (ar->io == NULL)
+        {
+            _fatal("Couldn't open [%s]: %s.", patchfile, strerror(errno));
+            return(PATCHERROR);
+        } /* if */
+	} /* else */
+
+    ar->reading = is_reading;
+    return(PATCHSUCCESS);
+} /* open_serialized_archive */
+
+
+static inline int close_serialized_archive(SerialArchive *ar)
+{
+    if (ar->io != NULL)
+    {
+        if (fclose(ar->io) == EOF)
+            return(PATCHERROR);
+
+        ar->io = NULL;
+    } /* if */
+
+    return(PATCHSUCCESS);
+} /* close_serialized_archive */
+
 
 /* printf-style: makes string for UI to put in the log. */
 void _fatal(const char *fmt, ...)
@@ -352,36 +736,7 @@ static int verify_md5sum(md5_byte_t *md5, md5_byte_t *result, FILE *in, int isfa
 } /* verify_md5sum */
 
 
-static int read_asciz_string(char *buffer, FILE *in)
-{
-    size_t i = 0;
-    int ch;
-
-    do
-    {
-        if (i >= MAX_PATH)
-        {
-            _fatal("String overflow error.");
-            return(PATCHERROR);
-        } /* if */
-
-        ch = fgetc(in);
-        if (ch == EOF)
-        {
-            if (feof(in))
-                _fatal("Unexpected EOF during read.");
-            else
-                _fatal("Error during read: %s.", strerror(errno));
-            return(PATCHERROR);
-        } /* if */
-
-        buffer[i] = (char) ch;
-    } while (buffer[i++] != '\0');
-
-    return(PATCHSUCCESS);
-} /* read_asciz_string */
-
-
+/* !!! FIXME: This should be in the UI abstraction. */
 static int confirm(void)
 {
     char buf[256];
@@ -426,9 +781,9 @@ static const char *final_path_element(const char *fname)
 
 
 /* put a DELETE operation in the mojopatch file... */
-static int put_delete(const char *fname, FILE *out)
+static int put_delete(SerialArchive *ar, const char *fname)
 {
-    unsigned char operation = OPERATION_DELETE;
+    DeleteOperation del;
 
     _current_operation("DELETE %s", final_path_element(fname));
     _log("DELETE %s", fname);
@@ -439,89 +794,67 @@ static int put_delete(const char *fname, FILE *out)
     if (!confirm())
         return(PATCHSUCCESS);
 
-    if (fwrite(&operation, sizeof (operation), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fwrite(fname, strlen(fname) + 1, 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    return(PATCHSUCCESS);
+    del.operation = OPERATION_DELETE;
+    make_static_string(del.fname, fname);
+    return(serialize_delete_op(ar, &del));
 } /* put_delete */
 
 
 /* get a DELETE operation from the mojopatch file... */
-static int get_delete(FILE *in)
+static int handle_delete_op(SerialArchive *ar, OperationType op, void *d)
 {
-    char fname[MAX_PATH];
+    DeleteOperation *del = (DeleteOperation *) d;
+    assert(op == OPERATION_DELETEDIRECTORY);
 
-    if (read_asciz_string(fname, in) == PATCHERROR)
-        return(PATCHERROR);
-
-    _current_operation("DELETE %s", final_path_element(fname));
-    _log("DELETE %s", fname);
+    _current_operation("DELETE %s", final_path_element(del->fname));
+    _log("DELETE %s", del->fname);
 
     if ( (info_only()) || (!confirm()) )
         return(PATCHSUCCESS);
 
-    if (in_ignore_list(fname))
+    if (in_ignore_list(del->fname))
         return(PATCHSUCCESS);
 
-    if (!file_exists(fname))
+    if (!file_exists(del->fname))
     {
         _log("file seems to be gone already.");
         return(PATCHSUCCESS);
     } /* if */
 
-    if (file_is_directory(fname))
+    if (file_is_directory(del->fname))
     {
         _fatal("Expected file, found directory!");
         return(PATCHERROR);
     } /* if */
 
-    if (remove(fname) == -1)
+    if (remove(del->fname) == -1)
     {
-        _fatal("Error removing [%s]: %s.", fname, strerror(errno));
+        _fatal("Error removing [%s]: %s.", del->fname, strerror(errno));
         return(PATCHERROR);
     } /* if */
 
     _log("done DELETE.");
     return(PATCHSUCCESS);
-} /* get_delete */
+} /* handle_delete_op */
 
 
 /* put a DELETEDIRECTORY operation in the mojopatch file... */
-static int put_delete_dir(const char *fname1, const char *fname2, FILE *out)
+static int put_delete_dir(SerialArchive *ar, const char *fname)
 {
-    unsigned char operation = OPERATION_DELETEDIRECTORY;
+    DeleteDirOperation deldir;
 
-    _current_operation("DELETEDIRECTORY %s", final_path_element(fname2));
-    _log("DELETEDIRECTORY %s", fname2);
+    _current_operation("DELETEDIRECTORY %s", final_path_element(fname));
+    _log("DELETEDIRECTORY %s", fname);
 
     if (!confirm())
         return(PATCHSUCCESS);
 
-    if (in_ignore_list(fname2))
+    if (in_ignore_list(fname))
         return(PATCHSUCCESS);
 
-    if (fwrite(&operation, sizeof (operation), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fwrite(fname2, strlen(fname2) + 1, 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    return(PATCHSUCCESS);
+    deldir.operation = OPERATION_DELETEDIRECTORY;
+    make_static_string(deldir.fname, fname);
+    return(serialize_delete_op(ar, &deldir));
 } /* put_delete_dir */
 
 
@@ -567,53 +900,47 @@ static int delete_dir_tree(const char *fname)
 
 
 /* get a DELETEDIRECTORY operation from the mojopatch file... */
-static int get_delete_dir(FILE *in)
+static int handle_deldir_op(SerialArchive *ar, OperationType op, void *d)
 {
-    char fname[MAX_PATH];
+    DeleteDirOperation *deldir = (DeleteDirOperation *) d;
+    assert(op == OPERATION_DELETEDIRECTORY);
 
-    if (read_asciz_string(fname, in) == PATCHERROR)
-        return(PATCHERROR);
-
-    _current_operation("DELETEDIRECTORY %s", final_path_element(fname));
-    _log("DELETEDIRECTORY %s", fname);
+    _current_operation("DELETEDIRECTORY %s", final_path_element(deldir->fname));
+    _log("DELETEDIRECTORY %s", deldir->fname);
 
     if ( (info_only()) || (!confirm()) )
         return(PATCHSUCCESS);
 
-    if (in_ignore_list(fname))
+    if (in_ignore_list(deldir->fname))
         return(PATCHSUCCESS);
 
-    if (!file_exists(fname))
+    if (!file_exists(deldir->fname))
     {
         _log("directory seems to be gone already.");
         return(PATCHSUCCESS);
     } /* if */
 
-    if (!file_is_directory(fname))
+    if (!file_is_directory(deldir->fname))
     {
         _fatal("Expected directory, found file!");
         return(PATCHERROR);
     } /* if */
 
-    if (!delete_dir_tree(fname))
+    if (!delete_dir_tree(deldir->fname))
         return(PATCHERROR);
 
     _log("done DELETEDIRECTORY.");
     return(PATCHSUCCESS);
-} /* get_delete_dir */
+} /* handle_deldir_op */
 
 
 /* put an ADD operation in the mojopatch file... */
-/* !!! FIXME: This really needs compression... */
-static int put_add(const char *fname, FILE *out)
+static int put_add(SerialArchive *ar, const char *fname)
 {
-    md5_byte_t md5[16];
-    unsigned char operation = (replace) ? OPERATION_REPLACE : OPERATION_ADD;
-    long fsize;
-    FILE *in;
-    int rc;
+    AddOperation add;
+    FILE *in = NULL;
     struct stat statbuf;
-    mode_t mode;
+    int retval = PATCHERROR;
 
     _current_operation("%s %s", (replace) ? "ADDORREPLACE" : "ADD",
                         final_path_element(fname));
@@ -625,33 +952,11 @@ static int put_add(const char *fname, FILE *out)
     if (in_ignore_list(fname))
         return(PATCHSUCCESS);
 
-    if (fwrite(&operation, sizeof (operation), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fwrite(fname, strlen(fname) + 1, 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (!get_file_size(fname, &fsize))
-        return(PATCHERROR);
-
-    if (fwrite(&fsize, sizeof (fsize), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
     if (stat(fname, &statbuf) == -1)
     {
         _fatal("Couldn't stat %s: %s.", fname, strerror(errno));
         return(PATCHERROR);
     } /* if */
-    mode = (mode_t) statbuf.st_mode;
 
     in = fopen(fname, "rb");
     if (in == NULL)
@@ -660,72 +965,47 @@ static int put_add(const char *fname, FILE *out)
         return(PATCHERROR);
     } /* if */
 
-    if (md5sum(in, md5, debug) == PATCHERROR)
-    {
-        fclose(in);
-        return(PATCHERROR);
-    } /* if */
+    if (md5sum(in, add.md5, debug) == PATCHERROR)
+        goto put_add_done;
 
-    if (fwrite(md5, sizeof (md5), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
+    add.operation = (replace) ? OPERATION_REPLACE : OPERATION_ADD;
+    add.fsize = statbuf.st_size;
+    add.mode = (mode_t) statbuf.st_mode;
+    make_static_string(add.fname, fname);
 
-    if (fwrite(&mode, sizeof (mode), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
+    if (!serialize_add_op(ar, &add))
+        goto put_add_done;
 
-    rc = write_between_files(in, out, fsize);
+    if (!write_between_files(in, ar->io, add.fsize))
+        goto put_add_done;
+
     assert(fgetc(in) == EOF);
-    fclose(in);
-    _dlog("  (%ld bytes in file.)", fsize);
-    return(rc);
+    retval = PATCHSUCCESS;
+
+put_add_done:
+    if (in != NULL)
+        fclose(in);
+    return(retval);
 } /* put_add */
 
 
 /* get an ADD or REPLACE operation from the mojopatch file... */
-/* !!! FIXME: This really needs compression... */
-static int get_add(FILE *in, int replace_ok)
+static int handle_add_op(SerialArchive *ar, OperationType op, void *d)
 {
-    md5_byte_t md5[16];
+    AddOperation *add = (AddOperation *) d;
+    assert((op == OPERATION_ADD) || (op == OPERATION_REPLACE));
+    int replace_ok = (op == OPERATION_REPLACE);
     int retval = PATCHERROR;
     FILE *io = NULL;
-    char fname[MAX_PATH];
-    long fsize;
     int rc;
-    mode_t mode;
-
-    if (read_asciz_string(fname, in) == PATCHERROR)
-        goto get_add_done;
-
-    if (fread(&fsize, sizeof (fsize), 1, in) != 1)
-    {
-        _fatal("Read error: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fread(md5, sizeof (md5), 1, in) != 1)
-    {
-        _fatal("Read error: %s.", strerror(errno));
-        goto get_add_done;
-    } /* if */
-
-    if (fread(&mode, sizeof (mode), 1, in) != 1)
-    {
-        _fatal("Read error: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
 
     _current_operation("%s %s", (replace_ok) ? "ADDORREPLACE" : "ADD",
-                          final_path_element(fname));
-    _log("%s %s", (replace_ok) ? "ADDORREPLACE" : "ADD", fname);
+                          final_path_element(add->fname));
+    _log("%s %s", (replace_ok) ? "ADDORREPLACE" : "ADD", add->fname);
 
-    if ( (info_only()) || (!confirm()) || (in_ignore_list(fname)) )
+    if ( (info_only()) || (!confirm()) || (in_ignore_list(add->fname)) )
     {
-        if (fseek(in, fsize, SEEK_CUR) < 0)
+        if (fseek(ar->io, add->fsize, SEEK_CUR) < 0)
         {
             _fatal("Seek error: %s.", strerror(errno));
             return(PATCHERROR);
@@ -733,34 +1013,34 @@ static int get_add(FILE *in, int replace_ok)
         return(PATCHSUCCESS);
     } /* if */
 
-    if (file_exists(fname))
+    if (file_exists(add->fname))
     {
         if (replace_ok)
-            unlink(fname);
+            unlink(add->fname);
         else
         {
-            if (file_is_directory(fname))
+            if (file_is_directory(add->fname))
             {
-                _fatal("Error: [%s] already exists, but it's a directory!", fname);
+                _fatal("Error: [%s] already exists, but it's a directory!", add->fname);
                 return(PATCHERROR);
             } /* if */
 
-            _log("[%s] already exists...looking at md5sum...", fname);
-            _current_operation("VERIFY %s", final_path_element(fname));
-            io = fopen(fname, "rb");
+            _log("[%s] already exists...looking at md5sum...", add->fname);
+            _current_operation("VERIFY %s", final_path_element(add->fname));
+            io = fopen(add->fname, "rb");
             if (io == NULL)
             {
                 _fatal("Failed to open added file for read: %s.", strerror(errno));
-                goto get_add_done;
+                goto handle_add_done;
             } /* if */
         
-            if (verify_md5sum(md5, NULL, io, 1) == PATCHERROR)
-                goto get_add_done;
+            if (verify_md5sum(add->md5, NULL, io, 1) == PATCHERROR)
+                goto handle_add_done;
 
             _log("Okay; file matches what we expected.");
             fclose(io);
 
-            if (fseek(in, fsize, SEEK_CUR) < 0)
+            if (fseek(ar->io, add->fsize, SEEK_CUR) < 0)
             {
                 _fatal("Seek error: %s.", strerror(errno));
                 return(PATCHERROR);
@@ -770,56 +1050,62 @@ static int get_add(FILE *in, int replace_ok)
         } /* else */
     } /* if */
 
-    io = fopen(fname, "wb");
+    io = fopen(add->fname, "wb");
     if (io == NULL)
     {
-        _fatal("Error creating [%s]: %s.", fname, strerror(errno));
-        goto get_add_done;
+        _fatal("Error creating [%s]: %s.", add->fname, strerror(errno));
+        goto handle_add_done;
     } /* if */
 
-    rc = write_between_files(in, io, fsize);
+    rc = write_between_files(ar->io, io, add->fsize);
     if (rc == PATCHERROR)
-        goto get_add_done;
+        goto handle_add_done;
 
     if (fclose(io) == EOF)
     {
         _fatal("Error: Couldn't flush output: %s.", strerror(errno));
-        goto get_add_done;
+        goto handle_add_done;
     } /* if */
 
-    chmod(fname, mode);  /* !!! FIXME: Should this be an error condition? */
+    chmod(add->fname, add->mode);  /* !!! FIXME: Should this be an error condition? */
 
-    _current_operation("VERIFY %s", final_path_element(fname));
-    io = fopen(fname, "rb");
+    _current_operation("VERIFY %s", final_path_element(add->fname));
+    io = fopen(add->fname, "rb");
     if (io == NULL)
     {
         _fatal("Failed to open added file for read: %s.", strerror(errno));
-        goto get_add_done;
+        goto handle_add_done;
     } /* if */
         
-    if (verify_md5sum(md5, NULL, io, 1) == PATCHERROR)
-        goto get_add_done;
+    if (verify_md5sum(add->md5, NULL, io, 1) == PATCHERROR)
+        goto handle_add_done;
 
     retval = PATCHSUCCESS;
     _log("done %s.", (replace_ok) ? "ADDORREPLACE" : "ADD");
 
-get_add_done:
+handle_add_done:
     if (io != NULL)
         fclose(io);
 
     return(retval);
-} /* get_add */
+} /* handle_add_op */
 
 
-static int put_add_for_wholedir(const char *base, FILE *out);
+static int handle_replace_op(SerialArchive *ar, OperationType op, void *d)
+{
+    assert(op == OPERATION_REPLACE);
+    return(handle_add_op(ar, op, d));
+} /* handle_replace_op */
+
+
+static int put_add_for_wholedir(SerialArchive *ar, const char *base);
 
 
 /* put an ADDDIRECTORY operation in the mojopatch file... */
-static int put_add_dir(const char *fname, FILE *out)
+static int put_add_dir(SerialArchive *ar, const char *fname)
 {
-    unsigned char operation = OPERATION_ADDDIRECTORY;
+    AddDirOperation adddir;
     struct stat statbuf;
-    mode_t mode;
 
     _current_operation("ADDDIRECTORY %s", final_path_element(fname));
     _log("ADDDIRECTORY %s", fname);
@@ -835,28 +1121,16 @@ static int put_add_dir(const char *fname, FILE *out)
         _fatal("Couldn't stat %s: %s.", fname, strerror(errno));
         return(PATCHERROR);
     } /* if */
-    mode = (mode_t) statbuf.st_mode;
 
-    if (fwrite(&operation, sizeof (operation), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
+    adddir.operation = OPERATION_ADDDIRECTORY;
+    adddir.mode = (mode_t) statbuf.st_mode;
+    make_static_string(adddir.fname, fname);
 
-    if (fwrite(fname, strlen(fname) + 1, 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
+    if (!serialize_adddir_op(ar, &adddir))
         return(PATCHERROR);
-    } /* if */
-
-    if (fwrite(&mode, sizeof (mode), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
 
     /* must add contents of dir after dir itself... */
-    if (put_add_for_wholedir(fname, out) == PATCHERROR)
+    if (put_add_for_wholedir(ar, fname) == PATCHERROR)
         return(PATCHERROR);
 
     return(PATCHSUCCESS);
@@ -864,54 +1138,47 @@ static int put_add_dir(const char *fname, FILE *out)
 
 
 /* get an ADDDIRECTORY operation from the mojopatch file... */
-static int get_add_dir(FILE *in)
+static int handle_adddir_op(SerialArchive *ar, OperationType op, void *d)
 {
-    char fname[MAX_PATH];
-    mode_t mode;
+    AddDirOperation *adddir = (AddDirOperation *) d;
+    assert(op == OPERATION_ADDDIRECTORY);
+    
+    _current_operation("ADDDIRECTORY %s", final_path_element(adddir->fname));
+    _log("ADDDIRECTORY %s", adddir->fname);
 
-    if (read_asciz_string(fname, in) == PATCHERROR)
-        return(PATCHERROR);
-
-    if (fread(&mode, sizeof (mode), 1, in) != 1)
-    {
-        _fatal("Read error: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    _current_operation("ADDDIRECTORY %s", final_path_element(fname));
-    _log("ADDDIRECTORY %s", fname);
-
-    if ( (info_only()) || (!confirm()) || (in_ignore_list(fname)) )
+    if ( (info_only()) || (!confirm()) || (in_ignore_list(adddir->fname)) )
         return(PATCHSUCCESS);
 
-    if (file_exists(fname))
+    if (file_exists(adddir->fname))
     {
-        if (file_is_directory(fname))
+        if (file_is_directory(adddir->fname))
         {
-            _log("[%s] already exists.", fname);
+            _log("[%s] already exists.", adddir->fname);
             return(PATCHSUCCESS);
         } /* if */
         else
         {
-            _fatal("[%s] already exists, but it's a file!", fname);
+            _fatal("[%s] already exists, but it's a file!", adddir->fname);
             return(PATCHERROR);
         } /* else */
     } /* if */
 
-    if (mkdir(fname, S_IRWXU) == -1)
+    if (mkdir(adddir->fname, S_IRWXU) == -1)
     {
-        _fatal("Error making directory [%s]: %s.", fname, strerror(errno));
+        _fatal("Error making directory [%s]: %s.", adddir->fname, strerror(errno));
         return(PATCHERROR);
     } /* if */
-    chmod(fname, mode);  /* !!! FIXME: Should this be an error condition? */
+
+    /* !!! FIXME: Pass this to mkdir? */
+    chmod(adddir->fname, adddir->mode);  /* !!! FIXME: Should this be an error condition? */
 
     _log("done ADDDIRECTORY.");
     return(PATCHSUCCESS);
-} /* get_add_dir */
+} /* handle_adddir_op */
 
 
 /* put add operations for each file in (base). Recurses into subdirs. */
-static int put_add_for_wholedir(const char *base, FILE *out)
+static int put_add_for_wholedir(SerialArchive *ar, const char *base)
 {
     char filebuf[MAX_PATH];
     file_list *files = make_filelist(base);
@@ -924,9 +1191,9 @@ static int put_add_for_wholedir(const char *base, FILE *out)
 
         /* put_add_dir recurses back into this function. */
         if (file_is_directory(filebuf))
-            rc = put_add_dir(filebuf, out);
+            rc = put_add_dir(ar, filebuf);
         else
-            rc = put_add(filebuf, out);
+            rc = put_add(ar, filebuf);
 
         if (rc == PATCHERROR)
         {
@@ -968,19 +1235,15 @@ static int md5sums_match(const char *fname1, const char *fname2,
 
 
 /* put a PATCH operation in the mojopatch file... */
-static int put_patch(const char *fname1, const char *fname2, FILE *out)
+static int put_patch(SerialArchive *ar, const char *fname1, const char *fname2)
 {
-    md5_byte_t md5_1[16];
-    md5_byte_t md5_2[16];
-    unsigned char operation = OPERATION_PATCH;
-    long fsize;
+    PatchOperation patch;
     FILE *deltaio = NULL;
-    int rc;
+    int retval = PATCHERROR;
     struct stat statbuf;
-    mode_t mode;
 
     _current_operation("VERIFY %s", final_path_element(fname2));
-	if (md5sums_match(fname1, fname2, md5_1, md5_2))
+	if (md5sums_match(fname1, fname2, patch.md5_1, patch.md5_2))
         return(PATCHSUCCESS);
 
     _current_operation("PATCH %s", final_path_element(fname2));
@@ -992,65 +1255,26 @@ static int put_patch(const char *fname1, const char *fname2, FILE *out)
     if (in_ignore_list(fname2))
         return(PATCHSUCCESS);
 
-    if (fwrite(&operation, sizeof (operation), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fwrite(fname2, strlen(fname2) + 1, 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fwrite(&md5_1, sizeof (md5_1), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fwrite(&md5_2, sizeof (md5_2), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (!get_file_size(fname2, &fsize))
-        return(PATCHERROR);
-
-    if (fwrite(&fsize, sizeof (fsize), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if ( (!_do_xdelta("delta -n --maxmem=%dM \"%s\" \"%s\" \"%s\"", maxxdeltamem, fname1, fname2, patchtmpfile)) ||
-         (!get_file_size(patchtmpfile, &fsize)) )
-    {
-        /* !!! FIXME: Not necessarily true. */
-        _fatal("there was a problem running xdelta.");
-        return(PATCHERROR);
-    } /* if */
-        
-    if (fwrite(&fsize, sizeof (fsize), 1, out) != 1)
-    {
-        _fatal("write failure: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
     if (stat(fname2, &statbuf) == -1)
     {
         _fatal("Couldn't stat %s: %s.", fname2, strerror(errno));
         return(PATCHERROR);
     } /* if */
-    mode = (mode_t) statbuf.st_mode;
 
-    if (fwrite(&mode, sizeof (mode), 1, out) != 1)
+    if ( (!_do_xdelta("delta -n --maxmem=%dM \"%s\" \"%s\" \"%s\"", maxxdeltamem, fname1, fname2, patchtmpfile)) ||
+         (!get_file_size(patchtmpfile, &patch.deltasize)) )
     {
-        _fatal("write failure: %s.", strerror(errno));
+        /* !!! FIXME: Not necessarily true. */
+        _fatal("there was a problem running xdelta.");
         return(PATCHERROR);
     } /* if */
+
+    patch.operation = OPERATION_PATCH;
+    patch.mode = (mode_t) statbuf.st_mode;
+    patch.fsize = statbuf.st_size;
+    make_static_string(patch.fname, fname2);
+    if (!serialize_patch_op(ar, &patch))
+        return(PATCHERROR);
 
     deltaio = fopen(patchtmpfile, "rb");
     if (deltaio == NULL)
@@ -1059,67 +1283,30 @@ static int put_patch(const char *fname1, const char *fname2, FILE *out)
         return(PATCHERROR);
     } /* if */
 
-    rc = write_between_files(deltaio, out, fsize);
+    retval = write_between_files(deltaio, ar->io, patch.deltasize);
     assert(fgetc(deltaio) == EOF);
     fclose(deltaio);
     unlink(patchtmpfile);
-    _dlog("  (%ld bytes in patch.)", fsize);
-    return(rc);
+    return(retval);
 } /* put_patch */
 
 
 /* get a PATCH operation from the mojopatch file... */
-static int get_patch(FILE *in)
+static int handle_patch_op(SerialArchive *ar, OperationType op, void *d)
 {
-    md5_byte_t md5_1[16];
-    md5_byte_t md5_2[16];
+    PatchOperation *patch = (PatchOperation *) d;
 	md5_byte_t md5result[16];
-    long fsize;
-    long deltasize;
-    char fname[MAX_PATH];
     FILE *f = NULL;
     FILE *deltaio = NULL;
     int rc;
-    mode_t mode;
 
-    if (read_asciz_string(fname, in) == PATCHERROR)
-        return(PATCHERROR);
+    assert(op == OPERATION_PATCH);
 
-    if (fread(md5_1, sizeof (md5_1), 1, in) != 1)
+    _log("PATCH %s", patch->fname);
+
+    if ( (info_only()) || (!confirm()) || (in_ignore_list(patch->fname)) )
     {
-        _fatal("Read error: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fread(md5_2, sizeof (md5_2), 1, in) != 1)
-    {
-        _fatal("Read error: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fread(&fsize, sizeof (fsize), 1, in) != 1)
-    {
-        _fatal("Read error: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fread(&deltasize, sizeof (deltasize), 1, in) != 1)
-    {
-        _fatal("Read error: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    if (fread(&mode, sizeof (mode), 1, in) != 1)
-    {
-        _fatal("Read error: %s.", strerror(errno));
-        return(PATCHERROR);
-    } /* if */
-
-    _log("PATCH %s", fname);
-
-    if ( (info_only()) || (!confirm()) || (in_ignore_list(fname)) )
-    {
-        if (fseek(in, deltasize, SEEK_CUR) < 0)
+        if (fseek(ar->io, patch->deltasize, SEEK_CUR) < 0)
         {
             _fatal("Seek error: %s.", strerror(errno));
             return(PATCHERROR);
@@ -1127,22 +1314,22 @@ static int get_patch(FILE *in)
         return(PATCHSUCCESS);
     } /* if */
 
-    f = fopen(fname, "rb");
+    f = fopen(patch->fname, "rb");
     if (f == NULL)
     {
-        _fatal("Failed to open [%s] for read: %s.", fname, strerror(errno));
+        _fatal("Failed to open [%s]: %s.", patch->fname, strerror(errno));
         return(PATCHERROR);
     } /* if */
 
-    _current_operation("VERIFY %s", final_path_element(fname));
-    rc = verify_md5sum(md5_1, md5result, f, 0);
+    _current_operation("VERIFY %s", final_path_element(patch->fname));
+    rc = verify_md5sum(patch->md5_1, md5result, f, 0);
     fclose(f);
     if (rc == PATCHERROR)
     {
-        if (memcmp(md5_2, md5result, sizeof (md5_2)) == 0)
+        if (memcmp(patch->md5_2, md5result, sizeof (patch->md5_2)) == 0)
         {
             _log("Okay; file matches patched md5sum. It's already patched.");
-            if (fseek(in, deltasize, SEEK_CUR) < 0)
+            if (fseek(ar->io, patch->deltasize, SEEK_CUR) < 0)
             {
                 _fatal("Seek error: %s.", strerror(errno));
                 return(PATCHERROR);
@@ -1154,15 +1341,15 @@ static int get_patch(FILE *in)
 
     unlink(patchtmpfile2); /* just in case... */
 
-    _current_operation("PATCH %s", final_path_element(fname));
+    _current_operation("PATCH %s", final_path_element(patch->fname));
     deltaio = fopen(patchtmpfile2, "wb");
     if (deltaio == NULL)
     {
-        _fatal("Failed to open [%s] for write: %s.", patchtmpfile2, strerror(errno));
+        _fatal("Failed to open [%s]: %s.", patchtmpfile2, strerror(errno));
         return(PATCHERROR);
     } /* if */
 
-    rc = write_between_files(in, deltaio, deltasize);
+    rc = write_between_files(ar->io, deltaio, patch->deltasize);
     fclose(deltaio);
     if (rc == PATCHERROR)
     {
@@ -1170,7 +1357,7 @@ static int get_patch(FILE *in)
         return(PATCHERROR);
     } /* if */
 
-    if (!_do_xdelta("patch --maxmem=%dM \"%s\" \"%s\" \"%s\"", maxxdeltamem, patchtmpfile2, fname, patchtmpfile))
+    if (!_do_xdelta("patch --maxmem=%dM \"%s\" \"%s\" \"%s\"", maxxdeltamem, patchtmpfile2, patch->fname, patchtmpfile))
     {
         _fatal("xdelta failed.");
         return(PATCHERROR);
@@ -1185,26 +1372,28 @@ static int get_patch(FILE *in)
         return(PATCHERROR);
     } /* if */
 
-    _current_operation("VERIFY %s", final_path_element(fname));
-    rc = verify_md5sum(md5_2, NULL, f, 1);
+    _current_operation("VERIFY %s", final_path_element(patch->fname));
+    rc = verify_md5sum(patch->md5_2, NULL, f, 1);
     fclose(f);
     if (rc == PATCHERROR)
         return(PATCHERROR);
 
-    if (do_rename(patchtmpfile, fname) == -1)
+    if (do_rename(patchtmpfile, patch->fname) == -1)
     {
-        _fatal("Error replacing [%s] with tempfile: %s.", fname, strerror(errno));
+        _fatal("Error replacing [%s] with tempfile: %s.", patch->fname, strerror(errno));
         return(PATCHERROR);
     } /* if */
 
-    chmod(fname, mode);  /* !!! FIXME: fatal error? */
+    chmod(patch->fname, patch->mode);  /* !!! FIXME: fatal error? */
 
     _log("done PATCH.");
     return(PATCHSUCCESS);
-} /* get_patch */
+} /* handle_patch_op */
 
 
-static int compare_directories(const char *base1, const char *base2, FILE *out)
+static int compare_directories(SerialArchive *ar,
+                               const char *base1,
+                               const char *base2)
 {
     int retval = PATCHERROR;
     char filebuf1[MAX_PATH];
@@ -1239,12 +1428,12 @@ static int compare_directories(const char *base1, const char *base2, FILE *out)
 
             snprintf(filebuf1, sizeof (filebuf1), "%s%s%s", base1, PATH_SEP, i->fname);
             if (!file_is_directory(filebuf1))
-                rc = put_delete(filebuf2, out);
+                rc = put_delete(ar, filebuf2);
             else
             {
-                rc = compare_directories(filebuf1, filebuf2, out);
+                rc = compare_directories(ar, filebuf1, filebuf2);
                 if (rc != PATCHERROR)
-                    rc = put_delete_dir(filebuf1, filebuf2, out);
+                    rc = put_delete_dir(ar, filebuf2);
             } /* else */
 
             if (rc == PATCHERROR)
@@ -1271,14 +1460,14 @@ static int compare_directories(const char *base1, const char *base2, FILE *out)
                 if (!file_is_directory(filebuf1))
                 {
                     _log("%s is a directory, but %s is not!", filebuf2, filebuf1);
-                    if (put_delete(filebuf2, out) == PATCHERROR)
+                    if (put_delete(ar, filebuf2) == PATCHERROR)
                         goto dircompare_done;
 
-                    if (put_add_dir(filebuf2, out) == PATCHERROR)
+                    if (put_add_dir(ar, filebuf2) == PATCHERROR)
                         goto dircompare_done;
                 } /* if */
 
-                if (compare_directories(filebuf1, filebuf2, out) == PATCHERROR)
+                if (compare_directories(ar, filebuf1, filebuf2) == PATCHERROR)
                     goto dircompare_done;
             } /* if */
 
@@ -1288,17 +1477,17 @@ static int compare_directories(const char *base1, const char *base2, FILE *out)
                 if (file_is_directory(filebuf1))
                 {
                     _log("Warning: %s is a directory, but %s is not!", filebuf1, filebuf2);
-                    if (put_delete_dir(filebuf1, filebuf2, out) == PATCHERROR)
+                    if (put_delete_dir(ar, filebuf2) == PATCHERROR)
                         goto dircompare_done;
 
-                    if (put_add(filebuf2, out) == PATCHERROR)
+                    if (put_add(ar, filebuf2) == PATCHERROR)
                         goto dircompare_done;
                 } /* if */
 
                 else
                 {
                     /* may not put anything if files match... */
-                    if (put_patch(filebuf1, filebuf2, out) == PATCHERROR)
+                    if (put_patch(ar, filebuf1, filebuf2) == PATCHERROR)
                         goto dircompare_done;
                 } /* else */
             } /* else */
@@ -1308,13 +1497,13 @@ static int compare_directories(const char *base1, const char *base2, FILE *out)
         {
             if (file_is_directory(filebuf2))
             {
-                if (put_add_dir(filebuf2, out) == PATCHERROR)
+                if (put_add_dir(ar, filebuf2) == PATCHERROR)
                     goto dircompare_done;
             } /* if */
 
             else
             {
-                if (put_add(filebuf2, out) == PATCHERROR)
+                if (put_add(ar, filebuf2) == PATCHERROR)
                     goto dircompare_done;
             } /* else */
         } /* else */
@@ -1384,31 +1573,41 @@ static char *read_whole_file(const char *fname)
 
 static int create_patchfile(void)
 {
+    SerialArchive ar;
     int retval = PATCHSUCCESS;
+    size_t fsize;
     char *real1 = NULL;
     char *real2 = NULL;
     char *real3 = NULL;
-    long fsize;
-    FILE *out;
-    char *readmedata = "";
-    char *readmedataptr = NULL;
-    const char *readmefname = final_path_element(readme);
+    char *readmefull = NULL;
 
-    if (strcmp(identifier, "") == 0)  /* specified on the commandline. */
+    if (header.readmefname[0])  /* user specified a README? */
+    {
+        const char *ptr = NULL;
+        readmefull = alloca(strlen(header.readmefname) + 1);
+
+        /* header stores filename, not path. Chop it out, but retain orig. */
+        strcpy(readmefull, header.readmefname);
+        ptr = final_path_element(readmefull);
+        if (ptr != readmefull)
+            make_static_string(header.readmefname, ptr);
+    } /* if */
+
+    if (strcmp(header.identifier, "") == 0) /* specified on the commandline. */
     {
         ui_fatal("Can't create a patchfile without an identifier.");
         return(PATCHERROR);
     } /* if */
 
     // !!! FIXME: platform should determine this by examining compared dirs.
-    if (strcmp(version, "") == 0)  /* specified on the commandline. */
+    if (strcmp(header.version, "") == 0)  /* specified on the commandline. */
     {
         ui_fatal("Can't create a patchfile without --version.");
         return(PATCHERROR);
     } /* if */
 
     // !!! FIXME: platform should determine this by examining compared dirs.
-    if (strcmp(newversion, "") == 0)  /* specified on the commandline. */
+    if (strcmp(header.newversion, "") == 0)  /* specified on the commandline. */
     {
         ui_fatal("Can't create a patchfile without --newversion.");
         return(PATCHERROR);
@@ -1436,8 +1635,8 @@ static int create_patchfile(void)
     } /* if */
 
     unlink(patchfile);  /* just in case. */
-    out = fopen(patchfile, "wb");
-    if (out == NULL)
+
+    if (!open_serialized_archive(&ar, patchfile, 0, NULL, NULL))
     {
         free(real1);
         free(real2);
@@ -1448,7 +1647,7 @@ static int create_patchfile(void)
 
     if (chdir(real2) != 0)
     {
-        fclose(out);
+        close_serialized_archive(&ar);
         free(real1);
         free(real2);
         free(real3);
@@ -1457,42 +1656,46 @@ static int create_patchfile(void)
     } /* if */
     free(real2);
 
-    if (*readme)
+    if (readmefull != NULL)
     {
-        readmedata = readmedataptr = read_whole_file(readme);
-        if (!readmedata)
+        header.readmedata = read_whole_file(readmefull);
+        if (!header.readmedata)
         {
-            fclose(out);
+            close_serialized_archive(&ar);
             free(real1);
             free(real3);
             return(PATCHERROR);
         } /* if */
     } /* if */
-
-    if ( (fwrite(MOJOPATCHSIG, strlen(MOJOPATCHSIG) + 1, 1, out) != 1) ||
-         (fwrite(product, strlen(product) + 1, 1, out) != 1) ||
-         (fwrite(identifier, strlen(identifier) + 1, 1, out) != 1) ||
-         (fwrite(version, strlen(version) + 1, 1, out) != 1) ||
-         (fwrite(newversion, strlen(newversion) + 1, 1, out) != 1) ||
-         (fwrite(readmefname, strlen(readmefname) + 1, 1, out) != 1) ||
-         (fwrite(readmedata, strlen(readmedata) + 1, 1, out) != 1) ||
-         (fwrite(renamedir, strlen(renamedir) + 1, 1, out) != 1) )
+    else
     {
-        _fatal("Couldn't write header [%s]: %s.", patchfile, strerror(errno));
-        fclose(out);
+        header.readmedata = malloc(1);  /* bleh. */
+        header.readmedata[0] = '\0';
+    } /* else */
+
+    if (!serialize_header(&ar, &header))
+    {
+        close_serialized_archive(&ar);
         free(real1);
         free(real3);
-        free(readmedataptr);
+        free(header.readmedata);
         return(PATCHERROR);
     } /* if */
 
-    free(readmedataptr);
+    free(header.readmedata);
 
-    retval = compare_directories(real1, "", out);
+    retval = compare_directories(&ar, real1, "");
 
     free(real1);
 
-    if (fclose(out) == EOF)
+    if (retval != PATCHERROR)
+    {
+        DoneOperation done;
+        done.operation = OPERATION_DONE;
+        retval = serialize_done_op(&ar, &done) ? PATCHSUCCESS : PATCHERROR;
+    } /* if */
+
+    if (!close_serialized_archive(&ar))
     {
         free(real3);
         _fatal("Couldn't close [%s]: %s.", patchfile, strerror(errno));
@@ -1518,262 +1721,121 @@ static int create_patchfile(void)
 } /* create_patchfile */
 
 
-static int do_patch_operations(FILE *in, int do_progress, long patchfile_size)
+static int do_patch_operations(SerialArchive *ar,
+                               int do_progress,
+                               long patchfile_size)
 {
+    Operations ops;
+    memset(&ops, '\0', sizeof (ops));
+
     if (info_only())
         _log("These are the operations we would perform if patching...");
 
-    while (1)
+    do
     {
         ui_pump();
 
         if (do_progress)
         {
-            long pos = ftell(in);
-            if (pos != -1)
-            {
-                float progress = ((float) pos) / ((float) patchfile_size);
-                ui_total_progress((int) (progress * 100.0f));
-            } /* if */
-            else
-            {
-                do_progress = 0;
-                ui_total_progress(-1);
-            } /* else */
+            long pos = ftell(ar->io);
+            int progress = (int) (((float)pos)/((float)patchfile_size)*100.0f);
+            ui_total_progress((pos == -1) ? -1 : progress);
         } /* if */
 
-        int ch = fgetc(in);
-        if (ch == EOF)
-        {
-            if (feof(in))
-            {                
-                return(PATCHSUCCESS);
-            } /* if */
-            else if (ferror(in))
-            {
-                _fatal("Read error: %s.", strerror(errno));
-                return(PATCHERROR);
-            } /* else if */
+        if (!serialize_operation(ar, &ops))
+            return(PATCHERROR);
 
-            assert(0);  /* wtf?! */
-            _fatal("Odd read error.");
-            return(PATCHERROR);  /* normal EOF. */
-        } /* if */
+        assert((ops.operation >= 0) && (ops.operation < OPERATION_TOTAL));
+        if (!operation_handlers[ops.operation](ar, ops.operation, &ops))
+            return(PATCHERROR);
+    } while (ops.operation != OPERATION_DONE);
 
-        switch ((char) ch)
-        {
-            case OPERATION_DELETE:
-                if (get_delete(in) == PATCHERROR)
-                    return(PATCHERROR);
-                break;
-
-            case OPERATION_DELETEDIRECTORY:
-                if (get_delete_dir(in) == PATCHERROR)
-                    return(PATCHERROR);
-                break;
-
-            case OPERATION_ADD:
-                if (get_add(in, 0) == PATCHERROR)
-                    return(PATCHERROR);
-                break;
-
-            case OPERATION_REPLACE:
-                if (get_add(in, 1) == PATCHERROR)
-                    return(PATCHERROR);
-                break;
-
-            case OPERATION_ADDDIRECTORY:
-                if (get_add_dir(in) == PATCHERROR)
-                    return(PATCHERROR);
-                break;
-
-            case OPERATION_PATCH:
-                if (get_patch(in) == PATCHERROR)
-                    return(PATCHERROR);
-                break;
-
-            default:
-                _fatal("Error: Unknown operation (%d).", ch);
-                return(PATCHERROR);
-        } /* switch */
-    } /* while */
-
-    assert(0);  /* shouldn't hit this. */
-    return(PATCHERROR);
+    return(PATCHSUCCESS);
 } /* do_patch_operations */
 
 
-static int extract_readme(const char *fname, FILE *in)
+static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 {
     int retval = PATCHSUCCESS;
-    char *buf = NULL;
-    size_t buflen = 0;
-    size_t br = 0;
-    int ch = 0;
 
-    do
+    _log("Product to patch: \"%s\".", *h->product ? h->product : "(blank)");
+    _log("Product identifier: \"%s\".", h->identifier);
+    _log("Patch from version: \"%s\".", h->version);
+    _log("Patch to version: \"%s\".", h->newversion);
+    _log("Readme: \"%s\".", *h->readmefname ? h->readmefname : "(none)");
+    _log("Renamedir: \"%s\".", *h->renamedir ? h->renamedir : "(none)");
+
+    /* Fill in a default product name if needed. */
+    if (*h->product == '\0')
     {
-        ch = fgetc(in);
-        if (ch == EOF)
-        {
-            _fatal("Unexpected EOF in patchfile.");
-            free(buf);
-            return(PATCHERROR);
-        } /* if */
-
-        if (buflen <= br)
-        {
-            char *ptr;
-            buflen += 1024;
-            ptr = realloc(buf, buflen);
-            if (!ptr)
-            {
-                free(buf);
-                _fatal("Out of memory.");
-                return(PATCHERROR);
-            } /* if */
-            buf = ptr;
-        } /* if */
-
-        buf[br++] = (char) ch;
-    } while (ch != '\0');
-
-    if ( (*buf) && (!info_only()) )
-        retval = show_and_install_readme(fname, buf);
-
-    free(buf);
-    return(retval);
-} /* extract_readme */
-
-
-static int check_patch_header(FILE *in)
-{
-    char buffer[MAX_PATH];
-
-    if (read_asciz_string(buffer, in) == PATCHERROR)
-        return(PATCHERROR);
-
-    if (strcmp(buffer, MOJOPATCHSIG) != 0)
-    {
-        _fatal("[%s] is not a compatible mojopatch file.", patchfile);
-        _log("signature is: %s.", buffer);
-        _log("    expected: %s.", MOJOPATCHSIG);
-        return(PATCHERROR);
+        char defstr[128];
+        snprintf(defstr, sizeof (defstr) - 1, "MojoPatch %s", VERSION);
+        make_static_string(h->product, defstr);
     } /* if */
 
-    if (read_asciz_string(buffer, in) == PATCHERROR)
-        return(PATCHERROR);
-    if (strcmp(product, "") == 0)
-    {
-        if (strcmp(buffer, "") == 0)
-            snprintf(product, sizeof (product) - 1, "MojoPatch %s", VERSION);
-        else
-            strncpy(product, buffer, sizeof (product) - 1);
-    } /* if */
-    product[sizeof (product) - 1] = '\0';  /* just in case. */
-    ui_title(product);
-
-    if (read_asciz_string(buffer, in) == PATCHERROR)
-        return(PATCHERROR);
-    if (strcmp(identifier, "") == 0)
-        strncpy(identifier, buffer, sizeof (identifier) - 1);
-    identifier[sizeof (identifier) - 1] = '\0';  /* just in case. */
-
-    if (read_asciz_string(buffer, in) == PATCHERROR)
-        return(PATCHERROR);
-    if (strcmp(version, "") == 0)
-        strncpy(version, buffer, sizeof (version) - 1);
-    version[sizeof (version) - 1] = '\0';  /* just in case. */
+    ui_title(h->product);
 
     if (!info_only())
     {
-        if (!chdir_by_identifier(identifier, version))
+        if (!chdir_by_identifier(h->identifier, h->version))
             return(PATCHERROR);
     } /* if */
 
-    if (read_asciz_string(buffer, in) == PATCHERROR)
-        return(PATCHERROR);
-    if (strcmp(newversion, "") == 0)
-        strncpy(newversion, buffer, sizeof (newversion) - 1);
-    newversion[sizeof (newversion) - 1] = '\0';  /* just in case. */
+    if (h->readmedata)
+    {
+        if (!info_only())
+            retval = show_and_install_readme(h->readmefname, h->readmedata);
+        free(h->readmedata);
+        h->readmedata = NULL;
+    } /* if */
 
-    if (read_asciz_string(buffer, in) == PATCHERROR)
-        return(PATCHERROR);
-    if (strcmp(readme, "") == 0)
-        strncpy(readme, buffer, sizeof (readme) - 1);
-    readme[sizeof (readme) - 1] = '\0';  /* just in case. */
-
-    if (extract_readme(readme, in) == PATCHERROR)
-        return(PATCHERROR);
-
-    if (read_asciz_string(buffer, in) == PATCHERROR)
-        return(PATCHERROR);
-    if (strcmp(renamedir, "") == 0)
-        strncpy(renamedir, buffer, sizeof (renamedir) - 1);
-    renamedir[sizeof (renamedir) - 1] = '\0';  /* just in case. */
-
-    _log("Product to patch: \"%s\".", product);
-    _log("Product identifier: \"%s\".", identifier);
-    _log("Patch from version: \"%s\".", version);
-    _log("Patch to version: \"%s\".", newversion);
-    _log("Readme: \"%s\".", *readme ? readme : "(none)");
-    _log("Renamedir: \"%s\".", *renamedir ? renamedir : "(none)");
-
-    return(PATCHSUCCESS);
-} /* check_patch_header */
+    return(retval);
+} /* process_patch_header */
 
 
 static int do_patching(void)
 {
+    SerialArchive ar;
     int report_error = 0;
     int retval = PATCHERROR;
-    FILE *in = NULL;
-    long patchfile_size = 0;
+    long file_size = 0;  /* !!! FIXME: make this size_t? */
     int do_progress = 0;
-
-    if (strcmp(patchfile, "-") == 0)  /* read from stdin? */
-        in = stdin;
-    else
-	{
-        do_progress = get_file_size(patchfile, &patchfile_size);
-        if (patchfile_size == 0)
-            do_progress = 0;  /* prevent a division by zero. */
-
-        in = fopen(patchfile, "rb");
-	} /* else */
 
     ui_total_progress(do_progress ? 0 : -1);
     ui_pump();
 
-    if (in == NULL)
-    {
-        _fatal("Couldn't open [%s]: %s.", patchfile, strerror(errno));
+    if (!open_serialized_archive(&ar, patchfile, 1, &do_progress, &file_size))
         return(PATCHERROR);
-    } /* if */
 
-    if (check_patch_header(in) == PATCHERROR)
+    if (!serialize_header(&ar, &header))
+        goto do_patching_done;
+
+    if (process_patch_header(&ar, &header) == PATCHERROR)
         goto do_patching_done;
 
     report_error = 1;
-    if (do_patch_operations(in, do_progress, patchfile_size) == PATCHERROR)
+    if (file_size == 0)
+        do_progress = 0;  /* prevent a division by zero. */
+    if (do_patch_operations(&ar, do_progress, file_size) == PATCHERROR)
         goto do_patching_done;
+
+    close_serialized_archive(&ar);
 
     if (!info_only())
     {
         _current_operation("Updating product version...");
         ui_total_progress(-1);
-        if ( (strcmp(newversion, "") != 0) && (!update_version(newversion)) )
+        if ( (*header.newversion) && (!update_version(header.newversion)) )
             goto do_patching_done;
 
-        if (*renamedir)
+        if (*header.renamedir)
         {
             char cwdbuf[MAX_PATH];
-            _log("Renaming product's root directory to [%s].", renamedir);
             if (getcwd(cwdbuf, sizeof (cwdbuf)) != NULL)
             {
                 chdir("..");
-                rename(cwdbuf, renamedir);
-                chdir(renamedir);  /* just in case */
+                rename(cwdbuf, header.renamedir);
+                chdir(header.renamedir);  /* just in case */
             } /* if */
         } /* if */
     } /* if */
@@ -1784,8 +1846,7 @@ static int do_patching(void)
         ui_success("Patching successful!");
 
 do_patching_done:
-    if ((in != stdin) && (in != NULL))
-        fclose(in);
+    close_serialized_archive(&ar);
 
     if ((retval == PATCHERROR) && (report_error))
     {
@@ -1855,9 +1916,6 @@ static int parse_cmdline(int argc, char **argv)
             return(do_usage(argv[0]));
     } /* if */
 
-    product[0] = '\0';  /* just in case. */
-    identifier[0] = '\0';  /* just in case. */
-
     for (i = 1; i < argc; i++)
     {
         int okay = 1;
@@ -1879,17 +1937,17 @@ static int parse_cmdline(int argc, char **argv)
         else if (strcmp(argv[i], "--replace") == 0)
             replace = 1;
         else if (strcmp(argv[i], "--product") == 0)
-            strncpy(product, argv[++i], sizeof (product) - 1);
+            make_static_string(header.product, argv[++i]);
         else if (strcmp(argv[i], "--identifier") == 0)
-            strncpy(identifier, argv[++i], sizeof (identifier) - 1);
+            make_static_string(header.identifier, argv[++i]);
         else if (strcmp(argv[i], "--version") == 0)
-            strncpy(version, argv[++i], sizeof (version) - 1);
+            make_static_string(header.version, argv[++i]);
         else if (strcmp(argv[i], "--newversion") == 0)
-            strncpy(newversion, argv[++i], sizeof (newversion) - 1);
+            make_static_string(header.newversion, argv[++i]);
         else if (strcmp(argv[i], "--readme") == 0)
-            strncpy(readme, argv[++i], sizeof (readme) - 1);
+            make_static_string(header.readmefname, argv[++i]);
         else if (strcmp(argv[i], "--renamedir") == 0)
-            strncpy(renamedir, argv[++i], sizeof (renamedir) - 1);
+            make_static_string(header.renamedir, argv[++i]);
         else if (strcmp(argv[i], "--ignore") == 0)
         {
             ignorecount++;
@@ -1906,9 +1964,6 @@ static int parse_cmdline(int argc, char **argv)
         if (!okay)
             return(0);
     } /* for */
-
-    product[sizeof (product) - 1] = '\0';  /* just in case. */
-    identifier[sizeof (identifier) - 1] = '\0';  /* just in case. */
 
     if (command == COMMAND_NONE)
         command = COMMAND_DOPATCHING;
@@ -1969,6 +2024,8 @@ int mojopatch_main(int argc, char **argv)
 {
 	time_t starttime = time(NULL);
     int retval = PATCHSUCCESS;
+
+    memset(&header, '\0', sizeof (header));
 
     if (!ui_init())
     {
