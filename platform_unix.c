@@ -282,6 +282,10 @@ static char *find_info_plist_bundle_id(char *ptr)
         {
             if (strcasecmp(val,"CFBundleIdentifier") == 0)
                 have_key = 1;
+            #if 1  /* lame hack for NWN Expansion pack patch */
+            else if (strcasecmp(val,"CFBundleIconFile") == 0)
+                have_key = 1;
+            #endif
         } /* if */
     } /* while */
     
@@ -453,7 +457,33 @@ int chdir_by_identifier(const char *name, const char *str,
         return(0);
     } /* if */
 
-    return(hasident ? parse_info_dot_plist(str, version, newversion) : 1);
+    if (hasident)
+        return(parse_info_dot_plist(str, version, newversion));
+
+#if 1
+    /*
+     * !!! FIXME: This is a hack. If no identifier is specified, use
+     *  "version"  as a filename that signifies you're in the right place.
+     * This is for patching things without app bundles or badly-written
+     * app bundles. This needs a better solution.
+     */
+    if ((version == NULL) || (*version))  /* Take everything on blind faith. */
+        return(1);
+
+    if (!file_exists(version))
+    {
+        int yes = ui_prompt_ny("We don't think we're looking at the right directory!"
+                               " Are you SURE this is the right place?"
+                               " If you aren't sure, clicking 'Yes' can destroy unrelated files!");
+        if (!yes)
+        {
+            _fatal("Stopping at user's request.");
+            return(0);
+        } /* if */
+    } /* if */
+#endif
+
+    return(1);
 } /* chdir_by_identifier */
 
 
