@@ -2152,7 +2152,7 @@ int mojopatch_main(int argc, char **argv)
     _dlog("(Total running time: %ld seconds.)", time(NULL) - starttime);
 
     ui_deinit();
-    return(retval);
+    return((retval == PATCHSUCCESS) ? 0 : 1);
 } /* mojopatch_main */
 
 /* end of mojopatch.c ... */
