@@ -173,25 +173,40 @@ static char *parse_xml(char *ptr, char **tag, char **val)
     char *ptr2;
     while ( (ptr = strchr(ptr, '<')) != NULL )
     {
-        ptr++;
-        if (*ptr == '/') continue;  // prior endtag.
-        if (*ptr == '!') continue;  // initial crap.
-        if (*ptr == '?') continue;  // initial crap.
+        ptr++;  /* skip past '<' to start of tag.*/
+        if (*ptr == '/') continue;  /* prior endtag? */
+        if (*ptr == '!') continue;  /* initial crap? */
+        if (*ptr == '?') continue;  /* initial crap? */
 
         *tag = ptr;
-        *(ptr-1) = '/';
-        ptr2 = strchr(ptr, ' ');
+        *(ptr-1) = '/';  /* prepend a '/' so we can search for the endtag. */
+        ptr2 = strchr(ptr, ' '); /* look for a space (tag attributes?) */
         if ( (ptr = strchr(ptr, '>')) == NULL ) return(NULL);
-        if ((ptr2) && (ptr2 < ptr)) *ptr2 = '\0';
-        *ptr = '\0';
-        *val = ++ptr;
+        if ((ptr2) && (ptr2 < ptr)) *ptr2 = '\0';  /* chop out attributes. */
+        *ptr = '\0';  /* chop off '<' at end of tag. */
+        *val = ptr + 1;  /* (*val) == start of children of this tag. */
+
+        /* Catch <tagname/> tags... */
+        ptr2 = ptr - 1;
+        while ( (ptr2 != *tag) && (isspace(*ptr2)) )
+            ptr2--;
+
+        if ((ptr2 != *tag) && (*ptr2 == '/'))  /* it's a <tag/> ... skip it. */
+        {
+            ptr = *val;
+            continue;
+        } /* if */
+
+        /* look for endtag... */
+        ptr++;
         while ( (ptr = strstr(ptr, (*tag)-1)) != NULL )
         {
-            if (*(ptr-1) != '<') { ptr++; continue; }
-            *(ptr-1) = '\0';
+            if (*(ptr-1) != '<') { ptr++; continue; }  /* false positive */
+            *(ptr-1) = '\0';  /* null-terminate tag's children. */
             break;
         } /* while */
 
+        /* return everything after this tag's children. */
         return((ptr == NULL) ? NULL : ptr + 1);
     } /* while */
 
