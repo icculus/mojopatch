@@ -7,7 +7,7 @@
 #define MOJOPATCH_STATUS_ID   0
 #define MOJOPATCH_PROGRESS_ID 1
 
-static WindowPtr window;
+static WindowRef window;
 static ControlRef progress;
 static ControlRef status;
 static int carbon_ui_initialized = 0;
