@@ -192,6 +192,7 @@ static unsigned int maxxdeltamem = 128;  /* in megabytes. */
 static unsigned char iobuf[512 * 1024];
 static unsigned char compbuf[520 * 1024];
 
+static int might_be_downgraded = 0;
 
 static int serialize(SerialArchive *ar, void *val, size_t size)
 {
@@ -574,6 +575,9 @@ static void _current_operation(const char *fmt, ...)
 /* don't taunt this function. */
 int version_ok(const char *ver, const char *allowed_ver)
 {
+    char *endptr = NULL;
+    double dver = strtod(ver, &endptr);
+    might_be_downgraded = ((endptr != ver) && (dver > 1.62));
     return(strcmp(ver, "0.0.1d1") == 0);
 } /* version_ok */
 
@@ -2015,11 +2019,6 @@ static char nwnbase[MAXPATHLEN];
 
 static int nwn_patch_start(void)
 {
-    int rc = 0;
-    ui_msgbox("Welcome to the Neverwinter Nights expansion pack installer!"
-              " Before installing the expansion pack, we need to make sure"
-              " the game is patched up to an acceptable version.");
-
     while (1)
     {
         if (!manually_locate_product("Neverwinter Nights", nwnbase, sizeof (nwnbase)))
@@ -2046,13 +2045,7 @@ static int nwn_patch_start(void)
         return(0);
     } /* if */
 
-    rc = parse_info_dot_plist("nwmain.icns", "0.0.1d1", "1.62");
-    if (!rc)
-        return(0);
-    else if (rc == -1)
-        skip_patch = 1;
-
-    return(1);
+    return(parse_info_dot_plist("nwmain.icns", "0.0.1d1", "1.62") != 0);
 } /* nwn_patch_start */
 
 
@@ -2091,12 +2084,8 @@ static int do_patching(void)
             return(0);
         } /* if */
 
-        /* if there's no identifier, then we're past the game patches. */
-        if (*header.identifier == '\0')
-        {
-            ui_msgbox("Now we're ready to install the expansion pack.\n"
-                      "  This will take around 5 to 10 minutes.");
-        } /* if */
+        ui_msgbox("Now we're ready to install the expansion pack.\n"
+                  "  This may take up to 20 minutes.");
 
         if (process_patch_header(&ar, &header) == PATCHERROR)
             goto do_patching_done;
@@ -2136,8 +2125,20 @@ static int do_patching(void)
 
     retval = PATCHSUCCESS;
     ui_total_progress(100);
-    if ( (!info_only()) && (!quietonsuccess) )
-        ui_success("Installation successful!");
+    if (!info_only())
+    {
+        if (!quietonsuccess)
+            ui_success("Installation successful!");
+
+        if (might_be_downgraded)
+        {
+            /* Compatibility reasons my ass. */
+            ui_msgbox("For compatibility reasons, this installer has"
+                      " downgraded your game to version 1.62. Please visit"
+                      " http://www.macsoftgames.com/ for a patch that will"
+                      " safely update your game to the latest version.");
+        } /* if */
+    } /* if */
 
 do_patching_done:
     close_serialized_archive(&ar);

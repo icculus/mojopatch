@@ -335,7 +335,7 @@ int parse_info_dot_plist(const char *ident,
         {
 //            if (strcmp(ptr, newversion) == 0)
 //            {
-                _fatal("You seem to have the required %s patch already!", newversion);
+//                _fatal("You seem to have the required %s patch already!", newversion);
                 retval = -1;
 //            } /* if */
 //            else
