@@ -196,6 +196,16 @@ static unsigned char iobuf[512 * 1024];
 static unsigned char compbuf[520 * 1024];
 #endif
 
+
+static int flush_archive(SerialArchive *ar)
+{
+    if ((ar->reading) || (ar->io == NULL))
+        return(PATCHSUCCESS);
+
+    return((fflush(ar->io) == 0) ? PATCHSUCCESS : PATCHERROR);
+} /* flush_archive */
+
+
 static int serialize(SerialArchive *ar, void *val, size_t size)
 {
     int rc;
@@ -331,7 +341,7 @@ static int serialize_header(SerialArchive *ar, PatchHeader *h, int *legitEOF)
     if (serialize_asciz_string(ar, &h->readmedata))
     if (serialize_static_string_if_empty(ar, h->renamedir))
     if (serialize_static_string_if_empty(ar, h->titlebar))
-        return(1);
+        return(flush_archive(ar));
 
     return(0);
 } /* serialize_header */
@@ -460,7 +470,10 @@ static int serialize_operation(SerialArchive *ar, Operations *ops)
         return(0);
     } /* if */
 
-    return(serializers[ops->operation](ar, ops));
+    if (!serializers[ops->operation](ar, ops))
+        return(0);
+
+    return(flush_archive(ar));
 } /* serialize_operation */
 
 
@@ -714,7 +727,7 @@ static int write_between_files_compress(FILE *in, FILE *out, long fsize)
         ui_pump();
     } /* while */
 
-    return(PATCHSUCCESS);
+    return(fflush(out) == 0 ? PATCHSUCCESS : PATCHERROR);
 } /* write_between_files_compress */
 
 
@@ -777,7 +790,7 @@ static int write_between_files_uncompress(FILE *in, FILE *out,
         ui_pump();
     } /* while */
 
-    return(PATCHSUCCESS);
+    return(fflush(out) == 0 ? PATCHSUCCESS : PATCHERROR);
 } /* write_between_files_uncompress */
 #endif
 
@@ -816,7 +829,7 @@ static int write_between_files(FILE *in, FILE *out, long fsize, ZlibOptions z)
         ui_pump();
     } /* while */
 
-    return(PATCHSUCCESS);
+    return(fflush(out) == 0 ? PATCHSUCCESS : PATCHERROR);
 } /* write_between_files */
 
 
