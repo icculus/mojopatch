@@ -157,6 +157,7 @@ static int replace = 0;
 static int appending = 0;
 static int alwaysadd = 0;
 static int quietonsuccess = 0;
+static int skip_patch = 0;
 static PatchCommands command = COMMAND_NONE;
 
 static const char *patchfile = NULL;
@@ -539,11 +540,16 @@ void _dlog(const char *fmt, ...)
 static void _current_operation(const char *fmt, ...)
 {
     char buf[512];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(buf, sizeof (buf), fmt, ap);
-    va_end(ap);
-    buf[sizeof(buf)-1] = '\0';
+    if (skip_patch)
+        strcpy(buf, "Skipping ahead...");
+    else
+    {
+        va_list ap;
+        va_start(ap, fmt);
+        vsnprintf(buf, sizeof (buf), fmt, ap);
+        va_end(ap);
+        buf[sizeof(buf)-1] = '\0';
+    } /* else */
     ui_status(buf);
     ui_pump();
 } /* _current_operation */
@@ -605,7 +611,7 @@ static int in_ignore_list(const char *fname)
 
 static inline int info_only(void)
 {
-    return(command == COMMAND_INFO);
+    return((command == COMMAND_INFO) || (skip_patch));
 } /* info_only */
 
 
@@ -1860,11 +1866,12 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 
     if (!info_only())
     {
-        if (!chdir_by_identifier(h->product, h->identifier,
-                                 h->version, h->newversion))
-        {
+        int rc = chdir_by_identifier(h->product, h->identifier,
+                                     h->version, h->newversion);
+        if (rc == 0)
             return(PATCHERROR);
-        } /* if */
+        else if (rc == -1)
+            skip_patch = 1;
     } /* if */
 
     if (*h->readmefname)
@@ -1931,6 +1938,8 @@ static int do_patching(void)
                 } /* if */
             } /* if */
         } /* if */
+
+        skip_patch = 0;  /* reset for next patch... */
 
         /* !!! FIXME: This loses command line overrides! */
         memset(&header, '\0', sizeof (header));

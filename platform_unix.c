@@ -318,15 +318,17 @@ static int parse_info_dot_plist(const char *ident,
             retval = 1;
         else
         {
-            if (strcmp(version, newversion) == 0)
+            if (strcmp(ptr, newversion) == 0)
+            {
                 _fatal("You seem to be all patched up already!");
+                retval = -1;
+            } /* if */
             else
             {
                 _fatal("This patch applies to version '%s', but you have '%s'.",
                         version, ptr);
+                retval = 0;
             } /* else */
-            free(mem);
-            return(0);
         } /* else */
     } /* if */
 
@@ -335,7 +337,7 @@ parse_info_plist_bailed:
     if (io != NULL)
         fclose(io);
 
-    if (!retval) _fatal("Can't determine product's installed version.");
+    if (retval == 0) _fatal("Can't determine product's installed version.");
     return(retval);
 } /* parse_info_dot_plist */
 
