@@ -1,7 +1,7 @@
 /*
  *----------------------------------------------------------------------------
  *
- * mojopatch
+ * mojopatch : nwn expansion pack branch
  * Copyright (C) 2003  Ryan C. Gordon.
  *
  *----------------------------------------------------------------------------
@@ -43,7 +43,7 @@
 #define VER_EXT_ZLIB " (w/zlib)"
 #endif
 
-#define VERSION "0.0.5" VER_EXT_ZLIB
+#define VERSION "0.0.5nwnxp" VER_EXT_ZLIB
 
 #define DEFAULT_PATCHFILENAME "default.mojopatch"
 
@@ -164,9 +164,6 @@ typedef enum
     ZLIB_COMPRESS,
     ZLIB_UNCOMPRESS
 } ZlibOptions;
-
-/* This is a hack. */
-static int must_prompt_for_location = 1;
 
 static int debug = 0;
 static int interactive = 0;
@@ -577,25 +574,7 @@ static void _current_operation(const char *fmt, ...)
 /* don't taunt this function. */
 int version_ok(const char *ver, const char *allowed_ver)
 {
-    char *ptr;
-    char *buf;
-
-    if (*allowed_ver == '\0')
-        return 1;  /* No specified version? Anything is okay, then. */
-
-    buf = (char *) alloca(strlen(allowed_ver) + 1);
-    strcpy(buf, allowed_ver);
-
-    while ((ptr = strstr(buf, " or ")) != NULL)
-    {
-        *ptr = '\0';
-        if (strcmp(ver, buf) == 0)
-            return(1);
-
-        buf = ptr + 4;
-    } /* while */
-
-    return(strcmp(ver, buf) == 0);
+    return(strcmp(ver, "0.0.1d1") == 0);
 } /* version_ok */
 
 
@@ -1118,8 +1097,7 @@ static int put_add(SerialArchive *ar, const char *fname)
     struct stat statbuf;
     int retval = PATCHERROR;
 
-    _current_operation("%s %s", (replace) ? "ADDORREPLACE" : "ADD",
-                        final_path_element(fname));
+    _current_operation("Installing file %s ...", final_path_element(fname));
     _log("%s %s", (replace) ? "ADDORREPLACE" : "ADD", fname);
 
     if (!confirm())
@@ -1175,8 +1153,7 @@ static int handle_add_op(SerialArchive *ar, OperationType op, void *d)
     FILE *io = NULL;
     int rc;
 
-    _current_operation("%s %s", (replace_ok) ? "ADDORREPLACE" : "ADD",
-                          final_path_element(add->fname));
+    _current_operation("Installing file %s ...", final_path_element(add->fname));
     _log("%s %s", (replace_ok) ? "ADDORREPLACE" : "ADD", add->fname);
 
     if ( (info_only()) || (!confirm()) || (in_ignore_list(add->fname)) )
@@ -1206,7 +1183,7 @@ static int handle_add_op(SerialArchive *ar, OperationType op, void *d)
             } /* if */
 
             _log("[%s] already exists...looking at md5sum...", add->fname);
-            _current_operation("VERIFY %s", final_path_element(add->fname));
+            _current_operation("Verifying %s ...", final_path_element(add->fname));
             io = fopen(add->fname, "rb");
             if (io == NULL)
             {
@@ -1249,7 +1226,7 @@ static int handle_add_op(SerialArchive *ar, OperationType op, void *d)
 
     chmod(add->fname, add->mode);  /* !!! FIXME: Should this be an error condition? */
 
-    _current_operation("VERIFY %s", final_path_element(add->fname));
+    _current_operation("Verifying %s ...", final_path_element(add->fname));
     io = fopen(add->fname, "rb");
     if (io == NULL)
     {
@@ -2005,7 +1982,8 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 
     ui_title(h->titlebar);
 
-    if ( (!info_only()) && (must_prompt_for_location) )
+#if 0
+    if ( (!info_only()) )
     {
         int rc = chdir_by_identifier(h->product, h->identifier,
                                      h->version, h->newversion);
@@ -2014,6 +1992,7 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
         else if (rc == -1)
             skip_patch = 1;
     } /* if */
+#endif
 
     if (*h->readmefname)
     {
@@ -2026,6 +2005,55 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 
     return(retval);
 } /* process_patch_header */
+
+int manually_locate_product(const char *name, char *buf, size_t bufsize);
+int parse_info_dot_plist(const char *ident,
+                         const char *version,
+                         const char *newversion);
+
+static char nwnbase[MAXPATHLEN];
+
+static int nwn_patch_start(void)
+{
+    int rc = 0;
+    ui_msgbox("Welcome to the Neverwinter Nights expansion pack installer!"
+              " Before installing the expansion pack, we need to make sure"
+              " the game is patched up to an acceptable version.");
+
+    while (1)
+    {
+        if (!manually_locate_product("Neverwinter Nights", nwnbase, sizeof (nwnbase)))
+        {
+            _fatal("We can't patch the product if we can't find it!");
+            return(0);
+        } /* if */
+
+        if (chdir(nwnbase) != 0)
+        {
+            _fatal("Failed to change to product's installation directory.");
+            return(0);
+        } /* if */
+
+        if (file_exists("./Neverwinter Nights.app"))
+            break;
+
+        ui_msgbox("This doesn't appear to be the right directory!");
+    } /* while */
+
+    if (chdir("./Neverwinter Nights.app") != 0)
+    {
+        _fatal("Failed to change to product's installation directory.");
+        return(0);
+    } /* if */
+
+    rc = parse_info_dot_plist("nwmain.icns", "0.0.1d1", "1.62");
+    if (!rc)
+        return(0);
+    else if (rc == -1)
+        skip_patch = 1;
+
+    return(1);
+} /* nwn_patch_start */
 
 
 static int do_patching(void)
@@ -2045,11 +2073,8 @@ static int do_patching(void)
     if (file_size == 0)
         do_progress = 0;  /* prevent a division by zero. */
 
-    ui_msgbox("Welcome to the Neverwinter Nights expansion pack installer!"
-              " Before installing the expansion pack, we need to make sure"
-              " the game is patched up to an acceptable version. You may be"
-              " prompted to show us where some icons in your original game "
-              " installation reside.");
+    if (!nwn_patch_start())
+        return(PATCHERROR);
 
     while (1)
     {
@@ -2060,17 +2085,18 @@ static int do_patching(void)
         if (legitEOF)  /* actually end of file, so bail. */
             break;
 
+        if (chdir(nwnbase) != 0)
+        {
+            _fatal("Failed to change to product's installation directory.");
+            return(0);
+        } /* if */
+
         /* if there's no identifier, then we're past the game patches. */
         if (*header.identifier == '\0')
         {
             ui_msgbox("Now we're ready to install the expansion pack.\n"
                       "  This will take around 5 to 10 minutes.");
-
-            chdir("..");  /* presumably, this is the base of the install. */
-            if (file_exists("./nwn.ini"))
-                must_prompt_for_location = 0;
         } /* if */
-
 
         if (process_patch_header(&ar, &header) == PATCHERROR)
             goto do_patching_done;

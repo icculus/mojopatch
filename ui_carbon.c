@@ -176,7 +176,7 @@ int manually_locate_product(const char *name, char *buf, size_t bufsize)
     OSStatus rc;
     int retval = 0;
     int yn;
-    const char *promptfmt = "We can't find your \"%s\" installation."
+    const char *promptfmt = "We can't find your %s installation."
                             " Would you like to show us where it is?";
     char *promptstr = alloca(strlen(name) + strlen(promptfmt) + 1);
 

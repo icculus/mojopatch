@@ -293,9 +293,9 @@ static char *find_info_plist_bundle_id(char *ptr)
 } /* find_info_plist_version */
 
 
-static int parse_info_dot_plist(const char *ident,
-                                const char *version,
-                                const char *newversion)
+int parse_info_dot_plist(const char *ident,
+                         const char *version,
+                         const char *newversion)
 {
     const char *fname = "Contents/Info.plist";  /* already chdir'd for this. */
     char *mem = NULL;
@@ -337,17 +337,17 @@ static int parse_info_dot_plist(const char *ident,
             retval = 1;
         else
         {
-            if (strcmp(ptr, newversion) == 0)
-            {
-                _fatal("You seem to be all patched up already!");
+//            if (strcmp(ptr, newversion) == 0)
+//            {
+                _fatal("You seem to have the required %s patch already!", newversion);
                 retval = -1;
-            } /* if */
-            else
-            {
-                _fatal("This patch applies to version '%s', but you have '%s'.",
-                        version, ptr);
-                retval = 0;
-            } /* else */
+//            } /* if */
+//            else
+//            {
+//                _fatal("This patch applies to version '%s', but you have '%s'.",
+//                        version, ptr);
+//                retval = 0;
+//            } /* else */
         } /* else */
     } /* if */
 
@@ -363,6 +363,8 @@ parse_info_plist_bailed:
 
 int update_version(const char *ver)
 {
+return 1;
+#if 0
     const char *fname = "Contents/Info.plist";  /* already chdir'd for this. */
     char *mem = NULL;
     char *ptr;
@@ -400,6 +402,7 @@ update_version_bailed:
 
     if (!retval) _fatal("Can't update product's installed version.");
     return(retval);
+#endif
 } /* update_version */
 
 
