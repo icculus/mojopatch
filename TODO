@@ -10,6 +10,7 @@
 - Get other platforms besides Mac updated and building again.
 - Look for FIXMEs...
 - "_fatal" isn't really appropriate anymore, since it might not be fatal.
+- chdir_by_identifier() has way too many unwritten responsibilities.
 
 /* end of TODO ... */
 

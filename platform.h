@@ -57,10 +57,11 @@ int get_file_size(const char *fname, long *fsize);
 char *get_current_dir(void);
 char *get_realpath(const char *path);
 int spawn_xdelta(const char *cmdline);
-int chdir_by_identifier(const char *name, const char *str, const char *ver);
 int update_version(const char *ver);
 int calc_tmp_filenames(char **tmp1, char **tmp2);
 int show_and_install_readme(const char *fname, const char *text);
+int chdir_by_identifier(const char *name, const char *str,
+                        const char *ver, const char *newver);
 
 #ifdef __cplusplus
 }

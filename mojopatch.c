@@ -1819,8 +1819,11 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 
     if (!info_only())
     {
-        if (!chdir_by_identifier(h->product, h->identifier, h->version))
+        if (!chdir_by_identifier(h->product, h->identifier,
+                                 h->version, h->newversion))
+        {
             return(PATCHERROR);
+        } /* if */
     } /* if */
 
     if (h->readmedata)

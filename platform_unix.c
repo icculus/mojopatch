@@ -274,7 +274,9 @@ static char *find_info_plist_bundle_id(char *ptr)
 } /* find_info_plist_version */
 
 
-static int parse_info_dot_plist(const char *ident, const char *version)
+static int parse_info_dot_plist(const char *ident,
+                                const char *version,
+                                const char *newversion)
 {
     const char *fname = "Contents/Info.plist";  // already chdir'd for this.
     char *mem = NULL;
@@ -316,8 +318,13 @@ static int parse_info_dot_plist(const char *ident, const char *version)
             retval = 1;
         else
         {
-            _fatal("This patch applies to version '%s', but you have '%s'.",
-                    version, ptr);
+            if (strcmp(version, newversion) == 0)
+                _fatal("You seem to be all patched up already!");
+            else
+            {
+                _fatal("This patch applies to version '%s', but you have '%s'.",
+                        version, ptr);
+            } /* else */
             free(mem);
             return(0);
         } /* else */
@@ -377,7 +384,8 @@ update_version_bailed:
 
 int manually_locate_product(const char *name, char *buf, size_t bufsize);
 
-int chdir_by_identifier(const char *name, const char *str, const char *version)
+int chdir_by_identifier(const char *name, const char *str,
+                        const char *version, const char *newversion)
 {
     char buf[MAXPATHLEN];
     Boolean b;
@@ -428,7 +436,7 @@ int chdir_by_identifier(const char *name, const char *str, const char *version)
         return(0);
     } /* if */
 
-    return(hasident ? parse_info_dot_plist(str, version) : 1);
+    return(hasident ? parse_info_dot_plist(str, version, newversion) : 1);
 } /* chdir_by_identifier */
 
 
