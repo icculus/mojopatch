@@ -1609,21 +1609,21 @@ static int create_patchfile(void)
 
     if (strcmp(header.identifier, "") == 0) /* specified on the commandline. */
     {
-        ui_fatal("Can't create a patchfile without an identifier.");
+        _fatal("Can't create a patchfile without an identifier.");
         return(PATCHERROR);
     } /* if */
 
     // !!! FIXME: platform should determine this by examining compared dirs.
     if (strcmp(header.version, "") == 0)  /* specified on the commandline. */
     {
-        ui_fatal("Can't create a patchfile without --version.");
+        _fatal("Can't create a patchfile without --version.");
         return(PATCHERROR);
     } /* if */
 
     // !!! FIXME: platform should determine this by examining compared dirs.
     if (strcmp(header.newversion, "") == 0)  /* specified on the commandline. */
     {
-        ui_fatal("Can't create a patchfile without --newversion.");
+        _fatal("Can't create a patchfile without --newversion.");
         return(PATCHERROR);
     } /* if */
 
