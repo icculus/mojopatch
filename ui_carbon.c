@@ -103,7 +103,7 @@ static int do_msgbox(const char *str, AlertType alert_type,
                      AlertStdCFStringAlertParamRec *param,
                      DialogItemIndex *idx)
 {
-    const char *_title = "MojoPatch";
+    const char *_title = "Neverwinter Nights Expansion Pack";
     int retval = 0;
     DialogItemIndex val = 0;
     CFStringRef title = CFStringCreateWithBytes(NULL, _title, strlen(_title),

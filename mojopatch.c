@@ -165,6 +165,8 @@ typedef enum
     ZLIB_UNCOMPRESS
 } ZlibOptions;
 
+/* This is a hack. */
+static int must_prompt_for_location = 1;
 
 static int debug = 0;
 static int interactive = 0;
@@ -2003,7 +2005,7 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 
     ui_title(h->titlebar);
 
-    if (!info_only())
+    if ( (!info_only()) && (must_prompt_for_location) )
     {
         int rc = chdir_by_identifier(h->product, h->identifier,
                                      h->version, h->newversion);
@@ -2043,6 +2045,12 @@ static int do_patching(void)
     if (file_size == 0)
         do_progress = 0;  /* prevent a division by zero. */
 
+    ui_msgbox("Welcome to the Neverwinter Nights expansion pack installer!"
+              " Before installing the expansion pack, we need to make sure"
+              " the game is patched up to an acceptable version. You may be"
+              " prompted to show us where some icons in your original game "
+              " installation reside.");
+
     while (1)
     {
         int legitEOF = 0;
@@ -2051,6 +2059,18 @@ static int do_patching(void)
 
         if (legitEOF)  /* actually end of file, so bail. */
             break;
+
+        /* if there's no identifier, then we're past the game patches. */
+        if (*header.identifier == '\0')
+        {
+            ui_msgbox("Now we're ready to install the expansion pack.\n"
+                      "  This will take around 5 to 10 minutes.");
+
+            chdir("..");  /* presumably, this is the base of the install. */
+            if (file_exists("./nwn.ini"))
+                must_prompt_for_location = 0;
+        } /* if */
+
 
         if (process_patch_header(&ar, &header) == PATCHERROR)
             goto do_patching_done;
@@ -2091,7 +2111,7 @@ static int do_patching(void)
     retval = PATCHSUCCESS;
     ui_total_progress(100);
     if ( (!info_only()) && (!quietonsuccess) )
-        ui_success("Patching successful!");
+        ui_success("Installation successful!");
 
 do_patching_done:
     close_serialized_archive(&ar);
