@@ -1,0 +1,2 @@
+[Distribution]
+Partner=20000022
