@@ -156,6 +156,7 @@ typedef enum
 static int debug = 0;
 static int interactive = 0;
 static int replace = 0;
+static int appending = 0;
 static PatchCommands command = COMMAND_NONE;
 
 static const char *patchfile = NULL;
@@ -442,6 +443,10 @@ static int open_serialized_archive(SerialArchive *ar,
         ar->io = (is_reading) ? stdin : stdout;
     else
 	{
+        const char *fopenstr = "rb";
+        if (!is_reading)
+            fopenstr = ((appending) ? "ab" : "wb");
+
         if (file_size != NULL)
         {
             int tmp = get_file_size(patchfile, file_size);
@@ -449,7 +454,7 @@ static int open_serialized_archive(SerialArchive *ar,
                 *sizeok = tmp;
         } /* if */
 
-        ar->io = fopen(patchfile, is_reading ? "rb" : "wb");
+        ar->io = fopen(patchfile, fopenstr);
         if (ar->io == NULL)
         {
             _fatal("Couldn't open [%s]: %s.", patchfile, strerror(errno));
@@ -1914,17 +1919,18 @@ static int do_usage(const char *argv0)
     _log("   or: %s <file.mojopatch>", argv0);
     _log("");
     _log("  You may also specify:");
-    _log("      --product (Product name)");
-    _log("      --identifier (Product identifier for locating installation)");
-    _log("      --version (Product version to patch against)");
-    _log("      --newversion (Product version to patch up to)");
-    _log("      --replace (AT CREATE TIME, specify ADDs can overwrite)");
-    _log("      --readme (README filename to display/install)");
-    _log("      --renamedir (What patched dir should be called)");
-    _log("      --titlebar (What UI's window's titlebar should say)");
-    _log("      --ignore (Ignore specific files/dirs)");
-    _log("      --confirm (Make process confirm each step)");
-    _log("      --debug (spew debugging output)");
+    _log("    --product (Product name)");
+    _log("    --identifier (Product identifier for locating installation)");
+    _log("    --version (Product version to patch against)");
+    _log("    --newversion (Product version to patch up to)");
+    _log("    --replace (specify ADDs overwrite, at create time or override)");
+    _log("    --append (creation appends to existing patchfile)");
+    _log("    --readme (README filename to display/install)");
+    _log("    --renamedir (What patched dir should be called)");
+    _log("    --titlebar (What UI's window's titlebar should say)");
+    _log("    --ignore (Ignore specific files/dirs)");
+    _log("    --confirm (Make process confirm each step)");
+    _log("    --debug (spew debugging output)");
     _log("");
     return(0);
 } /* do_usage */
@@ -1983,6 +1989,8 @@ static int parse_cmdline(int argc, char **argv)
             debug = 1;
         else if (strcmp(argv[i], "--replace") == 0)
             replace = 1;
+        else if (strcmp(argv[i], "--append") == 0)
+            appending = 1;
         else if (strcmp(argv[i], "--product") == 0)
             make_static_string(header.product, argv[++i]);
         else if (strcmp(argv[i], "--identifier") == 0)
@@ -2051,6 +2059,7 @@ static int parse_cmdline(int argc, char **argv)
         _dlog("debugging enabled.");
         _dlog("Interactive mode %senabled.", (interactive) ? "" : "NOT ");
         _dlog("ADDs are %spermitted to REPLACE.", (replace) ? "" : "NOT ");
+        _dlog("Created patch will %sbe appended.", (appending) ? "" : "NOT ");
         _dlog("command == (%d).", (int) command);
         _dlog("(%d) nonoptions:", nonoptcount);
         for (i = 0; i < nonoptcount; i++)
