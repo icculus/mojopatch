@@ -367,7 +367,7 @@ static int serialize_patch_op(SerialArchive *ar, void *d)
     assert(patch->operation == OPERATION_PATCH);
     if (serialize_static_string(ar, patch->fname))
     if (SERIALIZE(ar, patch->md5_1))
-    if (SERIALIZE(ar, patch->md5_1))
+    if (SERIALIZE(ar, patch->md5_2))
     if (SERIALIZE(ar, patch->fsize))
     if (SERIALIZE(ar, patch->deltasize))
     if (SERIALIZE(ar, patch->mode))
@@ -1856,13 +1856,14 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
         } /* if */
     } /* if */
 
-    if (h->readmedata)
+    if (*h->readmefname)
     {
         if (!info_only())
             retval = show_and_install_readme(h->readmefname, h->readmedata);
-        free(h->readmedata);
-        h->readmedata = NULL;
     } /* if */
+
+    free(h->readmedata);
+    h->readmedata = NULL;
 
     return(retval);
 } /* process_patch_header */
