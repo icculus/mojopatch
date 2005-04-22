@@ -17,13 +17,14 @@ int ui_init(void)
 {
     ControlID statusID = { MOJOPATCH_SIG, MOJOPATCH_STATUS_ID };
     ControlID progressID = { MOJOPATCH_SIG, MOJOPATCH_PROGRESS_ID };
-    IBNibRef nibRef;
+    IBNibRef nibRef = NULL;
     OSStatus err;
     Boolean b = TRUE;
 
     if (carbon_ui_initialized)  /* already initialized? */
         return(1);
 
+    /* !!! FIXME: This is corrupting the "basedir" variable in platform_unix.c ! */
     if (CreateNibReference(CFSTR("mojopatch"), &nibRef) != noErr)
     {
         fprintf(stderr, "MOJOPATCH: You probably don't have a .nib file!\n");

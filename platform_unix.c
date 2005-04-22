@@ -553,11 +553,11 @@ static void *spawn_thread(void *arg)
 int spawn_xdelta(const char *cmdline)
 {
     const char *binname = "xdelta";
-    char *cmd = alloca(strlen(cmdline) + strlen(basedir) + strlen(binname) + 2);
+    char *cmd = alloca(strlen(cmdline) + strlen(basedir) + strlen(binname) + 5);
     if (!cmd)
         return(0);
 
-    sprintf(cmd, "\"%s%s\" %s", basedir, binname, cmdline);
+    sprintf(cmd, "\"%s/%s\" %s", basedir, binname, cmdline);
 
 #if !USE_PTHREAD
     int rc = 0;
