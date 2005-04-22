@@ -43,6 +43,11 @@
 #define VER_EXT_ZLIB " (w/zlib)"
 #endif
 
+/*
+ * The version string is really file format version, not program version.
+ *  This is to prevent incompatible builds of the program from (mis)processing
+ *  a patchfile.
+ */
 #define VERSION "0.0.5" VER_EXT_ZLIB
 
 #define DEFAULT_PATCHFILENAME "default.mojopatch"
