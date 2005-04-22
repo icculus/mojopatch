@@ -49,6 +49,7 @@ void _log(const char *fmt, ...);
 /* Call this for logging (debug info). */
 void _dlog(const char *fmt, ...);
 
+/* Does a given version match the requirements? */
 int version_ok(const char *ver, const char *allowed, const char *newver);
 
 /* platform-specific stuff you implement. */
@@ -62,9 +63,8 @@ char *get_realpath(const char *path);
 int spawn_xdelta(const char *cmdline);
 int update_version(const char *ver);
 int calc_tmp_filenames(char **tmp1, char **tmp2);
-int show_and_install_readme(const char *fname, const char *text);
-int chdir_by_identifier(const char *name, const char *str,
-                        const char *ver, const char *newver);
+int locate_product_by_identifier(const char *str, char *buf, size_t bufsize);
+int check_product_version(const char *ident, const char *version, const char *newversion);
 
 #ifdef __cplusplus
 }

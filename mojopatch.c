@@ -2022,6 +2022,80 @@ static inline void header_log(const char *str, const char *val)
 } /* header_log */
 
 
+static int show_and_install_readme(const char *fname, const char *text)
+{
+    FILE *io = fopen(fname, "wb");
+    if (io == NULL)
+    {
+        _fatal("Failed to open [%s] for writing.", fname);
+        return(0);
+    } /* if */
+
+    /* !!! FIXME: "text" may be binary data, not an asciz string... */
+    fputs(text, io);  /* !!! FIXME: error checking! */
+    fclose(io);
+    return(ui_show_readme(fname, text));
+} /* show_and_install_readme */
+
+
+static int manually_locate_product(const char *name, char *buf, size_t bufsize)
+{
+    const char *promptfmt = "We can't find your \"%s\" installation."
+                            " Would you like to show us where it is?";
+    char *promptstr = alloca(strlen(name) + strlen(promptfmt) + 1);
+
+    if (promptstr == NULL)
+    {
+        _fatal("Out of memory.");
+        return(0);
+    } /* if */
+    sprintf(promptstr, promptfmt, name);
+
+    if (!ui_prompt_yn(promptstr))
+    {
+        _log("User chose not to manually locate installation");
+        return(0);
+    } /* if */
+
+    return(ui_file_picker(buf, bufsize));
+} /* manually_locate_product */
+
+
+static int chdir_by_identifier(const char *name, const char *str,
+                               const char *version, const char *newversion)
+{
+    char buf[MAXPATHLEN];
+    int hasident = ((str != NULL) && (*str));
+    int found = 0;
+
+    if (hasident)
+    {
+        found = locate_product_by_identifier(str, buf, sizeof (buf));
+        if (!found)
+            _log("Couldn't find product. Perhaps it isn't installed?");
+    } /* if */
+
+    if (!found) /* No identifier, or platform layer couldn't find it. */
+    {
+        if (!manually_locate_product(name, buf, sizeof (buf)))
+        {
+            _fatal("We can't patch the product if we can't find it!");
+            return(0);
+        } /* if */
+    } /* if */
+
+    _log("I think the product is installed at [%s].", buf);
+
+    if (chdir(buf) != 0)
+    {
+        _fatal("Failed to change to product's installation directory.");
+        return(0);
+    } /* if */
+
+    return(check_product_version(str, version, newversion));
+} /* chdir_by_identifier */
+
+
 static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 {
     int retval = PATCHSUCCESS;
@@ -2255,6 +2329,8 @@ static int parse_cmdline(int argc, char **argv)
             make_static_string(header.renamedir, argv[++i]);
         else if (strcmp(argv[i], "--titlebar") == 0)
             make_static_string(header.titlebar, argv[++i]);
+        else if (strcmp(argv[i], "--ui") == 0)
+            i++;  /* (really handled elsewhere.) Just skip ui driver name. */
         else if (strcmp(argv[i], "--zliblevel") == 0)
         {
             zliblevel = atoi(argv[++i]);
@@ -2339,6 +2415,31 @@ static int parse_cmdline(int argc, char **argv)
 
 /* !!! FIXME: signal_cleanup */
 
+static int kickoff_ui(int argc, char **argv)
+{
+    int seen_ui = 0;
+    int i;
+
+    for (i = 1; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--ui") == 0)
+        {
+            seen_ui = 1;
+            if (ui_init(argv[++i]))
+                return(1);
+        } /* if */
+    } /* for */
+
+    if (!seen_ui)
+    {
+        if (ui_init(NULL))
+            return(1);
+    } /* if */
+
+    fprintf(stderr, "MojoPatch: ui_init() failed!");  /* oh well. */
+    return(0);
+} /* kickoff_ui */
+
 
 int mojopatch_main(int argc, char **argv)
 {
@@ -2347,11 +2448,8 @@ int mojopatch_main(int argc, char **argv)
 
     memset(&header, '\0', sizeof (header));
 
-    if (!ui_init())
-    {
-        _fatal("MojoPatch: ui_init() failed!");  /* oh well. */
-        return(PATCHERROR);
-    } /* if */
+    if (!kickoff_ui(argc, argv))
+        return(PATCHERROR);  /* oh well. */
 
     _log("MojoPatch %s starting up.", VERSION);
 

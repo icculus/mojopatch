@@ -10,7 +10,6 @@
 - Get other platforms besides Mac updated and building again.
 - Look for FIXMEs...
 - "_fatal" isn't really appropriate anymore, since it might not be fatal.
-- chdir_by_identifier() has way too many unwritten responsibilities.
 - We md5sum to compare files. A byte-by-byte compare that halts as soon as
   there's a difference would be much faster when creating the initial patch
   files.

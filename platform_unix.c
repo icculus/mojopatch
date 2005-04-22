@@ -169,7 +169,7 @@ char *get_realpath(const char *path)
 } /* get_realpath */
 
 
-#ifdef PLATFORM_MACOSX
+#if PLATFORM_MACOSX
 #include <ApplicationServices/ApplicationServices.h>
 
 static char *parse_xml(char *ptr, char **tag, char **val)
@@ -287,12 +287,13 @@ static char *find_info_plist_bundle_id(char *ptr)
     
     return(NULL);
 } /* find_info_plist_version */
+#endif  /* PLATFORM_MACOSX */
 
 
-static int parse_info_dot_plist(const char *ident,
-                                const char *version,
-                                const char *newversion)
+int check_product_version(const char *ident, const char *version,
+                          const char *newversion)
 {
+#if PLATFORM_MACOSX
     const char *fname = "Contents/Info.plist";  /* already chdir'd for this. */
     char *mem = NULL;
     char *ptr;
@@ -309,20 +310,24 @@ static int parse_info_dot_plist(const char *ident,
     io = NULL;
     mem[fsize] = '\0';
 
-    ptr = find_info_plist_bundle_id(mem);
-    if ((ptr == NULL) || (strcasecmp(ptr, ident) != 0))
+    if (ident != NULL)
     {
-        int yes = ui_prompt_ny("We don't think we're looking at the right directory!"
-                               " Are you SURE this is the right place?"
-                               " If you aren't sure, clicking 'Yes' can destroy unrelated files!");
-        if (!yes)
+        ptr = find_info_plist_bundle_id(mem);
+        if ((ptr == NULL) || (strcasecmp(ptr, ident) != 0))
         {
-            _fatal("Stopping at user's request.");
-            free(mem);
-            return(0);
+            int yes = ui_prompt_ny("We don't think we're looking at the right directory!"
+                                   " Are you SURE this is the right place?"
+                                   " If you aren't sure, clicking 'Yes' can destroy unrelated files!");
+            if (!yes)
+            {
+                _fatal("Stopping at user's request.");
+                free(mem);
+                return(0);
+            } /* if */
         } /* if */
     } /* if */
 
+    /* !!! FIXME: this is kinda a lame hack. */
     if ( (io = fopen(fname, "r")) == NULL ) goto parse_info_plist_bailed;
     if ( (fread(mem, fsize, 1, io)) != 1 ) goto parse_info_plist_bailed;
     fclose(io);
@@ -348,11 +353,48 @@ parse_info_plist_bailed:
 
     if (!knowver) _fatal("Can't determine product's installed version.");
     return(retval);
+#else
+    _fatal("Not implemented!");  /* !!! FIXME */
+    return(0);
+#endif
 } /* parse_info_dot_plist */
+
+
+int locate_product_by_identifier(const char *str, char *buf, size_t bufsize)
+{
+#if PLATFORM_MACOSX
+    /* Ask LaunchServices to find product by identifier... */
+    OSStatus rc;
+    CFURLRef url = NULL;
+    CFStringRef id = CFStringCreateWithBytes(NULL, str, strlen(str),
+                                             kCFStringEncodingISOLatin1, 0);
+
+    /*
+     * !!! FIXME: This has a tendency to find installs in the trashcan.  :/
+     * !!! FIXME:  It might be worth checking if the product install has
+     * !!! FIXME:  a dir named ".Trash" in the hierarchy, and considering
+     * !!! FIXME:  it not found if so.
+     */
+    rc = LSFindApplicationForInfo(kLSUnknownCreator, id, NULL, NULL, &url);
+    CFRelease(id);
+    if (rc == noErr)
+    {
+        Boolean b = CFURLGetFileSystemRepresentation(url, TRUE, buf, bufsize);
+        CFRelease(url);
+        return(b != 0);
+    } /* if */
+
+    return(0);
+#else
+    _fatal("Not implemented!");  /* !!! FIXME */
+    return(0);
+#endif
+} /* locate_product_by_identifier */
 
 
 int update_version(const char *ver)
 {
+#if PLATFORM_MACOSX
     const char *fname = "Contents/Info.plist";  /* already chdir'd for this. */
     char *mem = NULL;
     char *ptr;
@@ -390,139 +432,18 @@ update_version_bailed:
 
     if (!retval) _fatal("Can't update product's installed version.");
     return(retval);
-} /* update_version */
-
-
-int manually_locate_product(const char *name, char *buf, size_t bufsize);
-
-int chdir_by_identifier(const char *name, const char *str,
-                        const char *version, const char *newversion)
-{
-    char buf[MAXPATHLEN];
-    Boolean b;
-    OSStatus rc;
-    int found = 0;
-    int hasident = ((str != NULL) && (*str));
-
-    /* if an identifier is specified, ask LaunchServices to find product... */
-    if (hasident)
-    {
-        CFURLRef url = NULL;
-        CFStringRef id = CFStringCreateWithBytes(NULL, str, strlen(str),
-                                                kCFStringEncodingISOLatin1, 0);
-
-        rc = LSFindApplicationForInfo(kLSUnknownCreator, id, NULL, NULL, &url);
-        CFRelease(id);
-        if (rc == noErr)
-        {
-            b = CFURLGetFileSystemRepresentation(url, TRUE, buf, sizeof (buf));
-            CFRelease(url);
-            if (!b)
-            {
-                _fatal("Internal error.");
-                return(0);
-            } /* if */
-            found = 1;
-        } /* if */
-        else
-        {
-            _log("Couldn't find product. Perhaps it isn't installed?");
-        } /* if */
-    } /* if */
-
-    if (!found) /* No identifier, or LaunchServices couldn't find it. */
-    {
-        if (!manually_locate_product(name, buf, sizeof (buf)))
-        {
-            _fatal("We can't patch the product if we can't find it!");
-            return(0);
-        } /* if */
-    } /* if */
-
-    _log("I think the product is installed at [%s].", buf);
-
-    if (chdir(buf) != 0)
-    {
-        _fatal("Failed to change to product's installation directory.");
-        return(0);
-    } /* if */
-
-    if (hasident)
-        return(parse_info_dot_plist(str, version, newversion));
-
-    return(1);
-} /* chdir_by_identifier */
-
-
-int show_and_install_readme(const char *fname, const char *text)
-{
-    FILE *io;
-    char *cmd;
-    const char *envr = getenv("HOME");
-    if (!envr)
-    {
-        _fatal("HOME environment var not set?");
-        return(0);
-    } /* if */
-
-    cmd = alloca(strlen(fname) + strlen(envr) + 30);
-    strcpy(cmd, "open ");
-    strcat(cmd, envr);
-    if (cmd[strlen(cmd)-1] != '/')
-        strcat(cmd, "/");
-    strcat(cmd, "Desktop/");
-    strcat(cmd, fname);
-
-    io = fopen(cmd + 5, "w");
-    if (!io)
-    {
-        _fatal("Failed to open [%s] for writing.", cmd+5);
-        return(0);
-    } /* if */
-
-    /* !!! FIXME: error checking! */
-    fputs(text, io);
-    fclose(io);
-    system(cmd);
-    return(1);
-} /* show_and_install_readme */
-
 
 #else  /* Regular old POSIX-compliant Unix... */
 
-int update_version(const char *ver)
-{
     /*
      * !!! FIXME: need some way to flag this install as updated...
      * !!! FIXME:  maybe just leave unimplemented?
      */
     _fatal("Not implemented!");
     return(0);
-} /* show_and_install_readme */
-
-int show_and_install_readme(const char *fname, const char *text)
-{
-    /*
-     * !!! FIXME: Can just dump to stdout? This should really be in the
-     * !!! FIXME:  UI modules...
-     */
-    _fatal("Not implemented!");
-    return(0);
-} /* show_and_install_readme */
-
-
-int chdir_by_identifier(const char *name, const char *str,
-                        const char *version, const char *newversion)
-{
-    /*
-     * !!! FIXME: need some way to find the program automatically...
-     * !!! FIXME:  maybe just prompt the user? Oh well.
-     */
-    _fatal("Not implemented!");
-    return(0);
-} /* chdir_by_identifier */
 
 #endif
+} /* update_version */
 
 
 int calc_tmp_filenames(char **tmp1, char **tmp2)
@@ -569,7 +490,7 @@ int spawn_xdelta(const char *cmdline)
         return(0);
     } /* if */
 
-    else if (pid == 0)   // child process.
+    else if (pid == 0)   /* child process. */
     {
         rc = spawn_thread(cmd);
         exit(1);  /* !!! FIXME    *((int *) rc) == 0 ); */

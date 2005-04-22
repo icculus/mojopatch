@@ -20,19 +20,19 @@ use_pthread := false
 # you probably shouldn't touch anything below this line.
 
 ifeq ($(strip $(platform)),macosx)
-PLATFORMDEF := -DPLATFORM_UNIX -DPLATFORM_MACOSX
-PLATFORMSRCS := platform_unix.c ui_carbon.c
+PLATFORMDEF := -DPLATFORM_UNIX=1 -DPLATFORM_MACOSX=1
+PLATFORMSRCS := platform_unix.c
 LDFLAGS := -framework Carbon
 endif
 
 ifeq ($(strip $(platform)),win32)
-PLATFORMDEF := -DPLATFORM_WIN32
-PLATFORMSRCS := platform_win32.c ui_stdio.c
+PLATFORMDEF := -DPLATFORM_WIN32=1
+PLATFORMSRCS := platform_win32.c
 endif
 
 ifeq ($(strip $(platform)),unix)
-  PLATFORMDEF := -DPLATFORM_UNIX
-  PLATFORMSRCS := platform_unix.c ui_stdio.c
+  PLATFORMDEF := -DPLATFORM_UNIX=1
+  PLATFORMSRCS := platform_unix.c
 endif
 
 #CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -O0 -DDEBUG=1 -D_DEBUG=1
@@ -54,7 +54,7 @@ ifeq ($(strip $(use_pthread)),true)
   endif
 endif
 
-MOJOPATCHSRCS := mojopatch.c md5.c $(PLATFORMSRCS)
+MOJOPATCHSRCS := mojopatch.c md5.c ui.c ui_carbon.c ui_stdio.c $(PLATFORMSRCS)
 OBJS1 := $(MOJOPATCHSRCS:.c=.o)
 OBJS2 := $(OBJS1:.cpp=.o)
 OBJS3 := $(OBJS2:.asm=.o)

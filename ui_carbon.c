@@ -1,3 +1,8 @@
+
+#if !PLATFORM_MACOSX
+int ui_init_carbon(void) { return(0); } /* not implemented if not MacOS. */
+#else
+
 #include <Carbon/Carbon.h>
 
 #include "platform.h"
@@ -10,80 +15,11 @@
 static WindowRef window;
 static ControlRef progress;
 static ControlRef status;
-static int carbon_ui_initialized = 0;
 
-/* user interface stuff you implement. */
-int ui_init(void)
-{
-    ControlID statusID = { MOJOPATCH_SIG, MOJOPATCH_STATUS_ID };
-    ControlID progressID = { MOJOPATCH_SIG, MOJOPATCH_PROGRESS_ID };
-    IBNibRef nibRef = NULL;
-    OSStatus err;
-    Boolean b = TRUE;
-
-    if (carbon_ui_initialized)  /* already initialized? */
-        return(1);
-
-    /* !!! FIXME: This is corrupting the "basedir" variable in platform_unix.c ! */
-    if (CreateNibReference(CFSTR("mojopatch"), &nibRef) != noErr)
-    {
-        fprintf(stderr, "MOJOPATCH: You probably don't have a .nib file!\n");
-        return(0);  /* usually .nib isn't found. */
-    } /* if */
-
-    err = SetMenuBarFromNib(nibRef, CFSTR("MenuBar"));
-    if (err == noErr)
-        err = CreateWindowFromNib(nibRef, CFSTR("MainWindow"), &window);
-    DisposeNibReference( nibRef );
-
-    if (err == noErr)
-        err = GetControlByID(window, &statusID, &status);
-
-    if (err == noErr)
-        err = GetControlByID(window, &progressID, &progress);
-
-    if (err == noErr)
-    {
-        ShowWindow(window);
-        err = ActivateWindow(window, TRUE);
-    } /* if */
-
-    if (err == noErr)
-    {
-        err = SetControlData(progress, kControlEntireControl,
-                              kControlProgressBarAnimatingTag,
-                              sizeof (b), &b);
-    } /* if */
-
-    carbon_ui_initialized = 1;
-    return(err == noErr);
-} /* ui_init */
-
-
-void ui_title(const char *str)
-{
-    CFStringRef cfstr = CFStringCreateWithBytes(NULL, str, strlen(str),
-                                                kCFStringEncodingISOLatin1, 0);
-    SetWindowTitleWithCFString(window, cfstr);
-    CFRelease(cfstr);
-    ui_pump();
-} /* ui_title */
-
-
-void ui_deinit(void)
-{
-    /* !!! FIXME */
-    /* carbon_ui_initialized = 0; */
-} /* ui_deinit */
-
-
-void ui_pump(void)
+static void ui_pump_carbon(void)
 {
     EventRef theEvent;
     EventTargetRef theTarget;
-
-    if (!carbon_ui_initialized)
-        return;
 
     theTarget = GetEventDispatcherTarget();
     if (ReceiveNextEvent(0, NULL, 0, true, &theEvent) == noErr)
@@ -91,14 +27,35 @@ void ui_pump(void)
         SendEventToEventTarget(theEvent, theTarget);
         ReleaseEvent(theEvent);
     } /* if */
-} /* ui_pump */
+} /* ui_pump_carbon */
 
 
-void ui_add_to_log(const char *str, int debugging)
+static void ui_title_carbon(const char *str)
+{
+    CFStringRef cfstr = CFStringCreateWithBytes(NULL, str, strlen(str),
+                                                kCFStringEncodingISOLatin1, 0);
+    SetWindowTitleWithCFString(window, cfstr);
+    CFRelease(cfstr);
+    ui_pump_carbon();
+} /* ui_title_carbon */
+
+
+static void ui_real_deinit_carbon(void)
 {
     /* !!! FIXME */
+} /* ui_real_deinit_carbon */
+
+
+static void ui_add_to_log_carbon(const char *str, int debugging)
+{
+    /*
+     * stdout in a Mac GUI app shows up in the system console, which can be
+     *  viewed via /Applications/Utilities/Console.app ...
+     */
+
+    /* !!! FIXME */
     printf("MojoPatch%s: %s\n", debugging ? " [debug]" : "", str);
-} /* ui_add_to_log */
+} /* ui_add_to_log_carbon */
 
 
 static int do_msgbox(const char *str, AlertType alert_type,
@@ -155,18 +112,20 @@ static int ui_prompt_yes_or_no(const char *question, int yes)
     return(item == kAlertStdAlertOKButton);
 } /* ui_prompt_yes_or_no */
 
-int ui_prompt_yn(const char *question)
+
+static int ui_prompt_yn_carbon(const char *question)
 {
     return(ui_prompt_yes_or_no(question, 1));
-} /* ui_prompt_yn */
+} /* ui_prompt_yn_carbon */
 
-int ui_prompt_ny(const char *question)
+
+static int ui_prompt_ny_carbon(const char *question)
 {
     return(ui_prompt_yes_or_no(question, 1));  /* !!! FIXME! should be zero. */
-} /* ui_prompt_ny */
+} /* ui_prompt_ny_carbon */
 
 
-int manually_locate_product(const char *name, char *buf, size_t bufsize)
+static int ui_file_picker_carbon(char *buf, size_t bufsize)
 {
     NavDialogCreationOptions dlgopt;
     NavDialogRef dlg;
@@ -177,30 +136,12 @@ int manually_locate_product(const char *name, char *buf, size_t bufsize)
     FSRef fsref;
     OSStatus rc;
     int retval = 0;
-    int yn;
-    const char *promptfmt = "We can't find your \"%s\" installation."
-                            " Would you like to show us where it is?";
-    char *promptstr = alloca(strlen(name) + strlen(promptfmt) + 1);
-
-    if (promptstr == NULL)
-    {
-        _fatal("Out of memory.");
-        return(0);
-    } /* if */
-    sprintf(promptstr, promptfmt, name);
-
-    yn = ui_prompt_yn(promptstr);
-    if (!yn)
-    {
-        _log("User chose not to manually locate installation");
-        return(0);
-    } /* if */
 
     NavGetDefaultDialogCreationOptions(&dlgopt);
     dlgopt.optionFlags |= kNavSupportPackages;
     dlgopt.optionFlags |= kNavAllowOpenPackages;
     dlgopt.optionFlags &= ~kNavAllowMultipleFiles;
-    dlgopt.windowTitle = CFSTR("Please select the product's icon and click 'OK'.");
+    dlgopt.windowTitle = CFSTR("Please select the product's icon and click 'OK'.");  /* !!! FIXME! */
     dlgopt.actionButtonLabel = CFSTR("OK");
     NavCreateChooseFolderDialog(&dlgopt, NULL, NULL, NULL, &dlg);
     NavDialogRun(dlg);
@@ -212,7 +153,7 @@ int manually_locate_product(const char *name, char *buf, size_t bufsize)
         NavDialogGetReply(dlg, &reply);
         rc = AEGetNthDesc(&reply.selection, 1, typeFSRef, &keyword, &desc);
         if (rc != noErr)
-            _fatal("Unexpected error in AEGetNthDesc: %d\n", (int) rc);
+            _fatal("Unexpected error in AEGetNthDesc: %d", (int) rc);
         else
         {
             /* !!! FIXME: Check return values here! */
@@ -232,31 +173,28 @@ int manually_locate_product(const char *name, char *buf, size_t bufsize)
             retval ? "selected" : "did NOT select");
 
     return(retval);
-} /* manually_locate_product */
+} /* ui_file_picker_carbon */
 
 
-void ui_fatal(const char *str)
+static void ui_fatal_carbon(const char *str)
 {
-    if (!carbon_ui_initialized)
-        fprintf(stderr, "FATAL ERROR: %s\n", str);
-    else
-        do_msgbox(str, kAlertStopAlert, NULL, NULL);
+    do_msgbox(str, kAlertStopAlert, NULL, NULL);
 } /* ui_fatal */
 
 
-void ui_success(const char *str)
+static void ui_success_carbon(const char *str)
 {
     do_msgbox(str, kAlertNoteAlert, NULL, NULL);
-} /* ui_success */
+} /* ui_success_carbon */
 
 
-void ui_msgbox(const char *str)
+static void ui_msgbox_carbon(const char *str)
 {
     do_msgbox(str, kAlertNoteAlert, NULL, NULL);
-} /* ui_msgbox */
+} /* ui_msgbox_carbon */
 
 
-void ui_total_progress(int percent)
+static void ui_total_progress_carbon(int percent)
 {
     static int lastpercent = -1;
     if (percent != lastpercent)
@@ -268,15 +206,87 @@ void ui_total_progress(int percent)
         SetControl32BitValue(progress, percent);
         lastpercent = percent;
     } /* if */
-} /* ui_total_progress */
+} /* ui_total_progress_carbon */
 
 
-void ui_status(const char *str)
+static void ui_status_carbon(const char *str)
 {
     SetControlData(status, kControlEditTextPart, kControlStaticTextTextTag,
                     strlen(str), str);
     Draw1Control(status);
-} /* ui_status */
+} /* ui_status_carbon */
+
+
+static int ui_show_readme_carbon(const char *fname, const char *text)
+{
+    /*
+     * Just let the Finder pick the right program to view the file...
+     *  this lets you ship with a .txt, .html, .rtf, or whatever, for a
+     *  readme on this platform.
+     */
+
+    size_t allocsize = strlen(fname) + 32;
+    char *cmd = (char *) alloca(allocsize);
+    if (!cmd)
+    {
+        _fatal("Out of memory.");
+        return(0);
+    } /* if */
+
+    snprintf(cmd, allocsize, "open %s", fname);
+    system(cmd);  /* !!! FIXME: error check? */
+    return(1);
+} /* ui_show_readme_carbon */
+
+
+/* user interface stuff you implement. */
+int ui_init_carbon(void)
+{
+    ControlID statusID = { MOJOPATCH_SIG, MOJOPATCH_STATUS_ID };
+    ControlID progressID = { MOJOPATCH_SIG, MOJOPATCH_PROGRESS_ID };
+    IBNibRef nibRef = NULL;
+    OSStatus err;
+    Boolean b = TRUE;
+
+    /* !!! FIXME: This is corrupting the "basedir" variable in platform_unix.c ! */
+    if (CreateNibReference(CFSTR("mojopatch"), &nibRef) != noErr)
+    {
+        fprintf(stderr, "MOJOPATCH: Carbon UI failed to initialize!\n");
+        fprintf(stderr, "MOJOPATCH: You probably don't have a .nib file!\n");
+        return(0);  /* usually .nib isn't found. */
+    } /* if */
+
+    err = SetMenuBarFromNib(nibRef, CFSTR("MenuBar"));
+    if (err == noErr)
+        err = CreateWindowFromNib(nibRef, CFSTR("MainWindow"), &window);
+    DisposeNibReference( nibRef );
+
+    if (err == noErr)
+        err = GetControlByID(window, &statusID, &status);
+
+    if (err == noErr)
+        err = GetControlByID(window, &progressID, &progress);
+
+    if (err == noErr)
+    {
+        ShowWindow(window);
+        err = ActivateWindow(window, TRUE);
+    } /* if */
+
+    if (err == noErr)
+    {
+        err = SetControlData(progress, kControlEntireControl,
+                              kControlProgressBarAnimatingTag,
+                              sizeof (b), &b);
+    } /* if */
+
+    if (err == noErr);
+        UI_SET_FUNC_POINTERS(carbon);
+
+    return(err == noErr);
+} /* ui_init_carbon */
+
+#endif
 
 /* end of ui_carbon.c ... */
 
