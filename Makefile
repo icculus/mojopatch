@@ -38,6 +38,10 @@ endif
 #CFLAGS := $(PLATFORMDEF) -Wall -g -fsigned-char -fno-omit-frame-pointer -O0 -DDEBUG=1 -D_DEBUG=1
 CFLAGS := $(PLATFORMDEF) -Wall -fsigned-char -fomit-frame-pointer -Os
 
+ifneq ($(strip $(platform)),macosx)
+  CFLAGS += -mdynamic-no-pic
+endif
+
 ifeq ($(strip $(use_zlib)),true)
   CFLAGS += -DUSE_ZLIB
   LDFLAGS += -lz
