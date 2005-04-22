@@ -13,6 +13,18 @@
 - We md5sum to compare files. A byte-by-byte compare that halts as soon as
   there's a difference would be much faster when creating the initial patch
   files.
+- Do a binary package for MacOS so people don't have to build from source.
+  (But fix some other nasties first).
+- Windows port.
+- Linux port...gtk, qt? Besides some platform_unix things, the thing should
+  mostly work with the stdio UI driver...
+- XCode project for MacOS
+- MacOS Classic? :)
+- "Patching successful" is said even if there's a catastropic failure, because
+  of the nasty skip_patch code.
+- Ignore .DS_Store files by default on MacOS X?
+- Documentation! Anything at all!
+- Write a GUI for generating patches.
 
 /* end of TODO ... */
 
