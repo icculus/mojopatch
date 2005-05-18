@@ -366,18 +366,19 @@ int locate_product_by_identifier(const char *str, char *buf, size_t bufsize)
     CFRelease(id);
     if (rc == noErr)
     {
-        Boolean b = CFURLGetFileSystemRepresentation(url, TRUE, buf, bufsize);
+        int b = (int) CFURLGetFileSystemRepresentation(url, TRUE, buf, bufsize);
+        if (b) b = 1;
         CFRelease(url);
-        if (1) //((b) && (strstr(buf, "/.Trash/")))
+        if ((b) && (strstr(buf, "/.Trash/")))
         {
             _fatal("It looks like your installation is in the Trash can."
                     " Please take it out of the trash first."
                     " If this is an old installation, please empty your"
                     " trash so we find the right one.");
-            b = 0;
+            b = -1;
         } /* if */
 
-        return(b != 0);
+        return(b);
     } /* if */
 
     return(0);
@@ -520,13 +521,20 @@ static SpawnResult spawn_binary(const char *cmd)
 
 SpawnResult spawn_xdelta(const char *cmdline)
 {
+    SpawnResult retval;
     const char *binname = "xdelta";
     char *cmd = alloca(strlen(cmdline) + strlen(basedir) + strlen(binname) + 5);
     if (!cmd)
         return(SPAWN_FAILED);
 
     sprintf(cmd, "\"%s/%s\" %s", basedir, binname, cmdline);
-    return(spawn_binary(cmd));
+    retval = spawn_binary(cmd);
+
+    /* !!! FIXME: xdelta returns an unexpected value when making a delta. */
+    /* !!! FIXME:  (we check the md5sums from all output anyhow. */
+    if (retval == SPAWN_RETURNBAD) retval = SPAWN_RETURNGOOD;
+
+    return(retval);
 } /* spawn_xdelta */
 
 

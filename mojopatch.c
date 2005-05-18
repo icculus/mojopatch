@@ -617,7 +617,7 @@ IsPatchable version_ok(const char *ver, const char *allowed_ver, const char *new
     if (*allowed_ver == '\0')  /* No specified version? Anything is okay. */
         return ISPATCHABLE_YES;
 
-    if (strcmp(allowed_ver, newver) == 0)  /* all patched up? */
+    if (strcmp(ver, newver) == 0)  /* all patched up? */
         return ISPATCHABLE_MATCHES;
 
     buf = (char *) alloca(strlen(allowed_ver) + 1);
@@ -2164,18 +2164,30 @@ static int run_script(const char *name)
     char cwd[MAX_PATH];
 
     if (getcwd(cwd, sizeof (cwd)) == NULL)
+    {
+        _fatal("Couldn't determine current working directory!");
         return(0);
+    } /* if */
 
     if (patchfiledir != NULL)
     {
         if (chdir(patchfiledir) == -1)
+        {
+            _fatal("Failed to change directory to \"%s\".", patchfiledir);
             return(0);
+        } /* if */
     } /* if */
 
     rc = spawn_script(name, cwd);
 
-    if (chdir(cwd) == -1)
-        return(0);
+    if (patchfiledir != NULL)
+    {
+        if (chdir(cwd) == -1)
+        {
+            _fatal("Failed to change directory to \"%s\".", cwd);
+            return(0);
+        } /* if */
+    } /* if */
 
     if (rc == SPAWN_FILENOTFOUND)
         return(1);  /* "success" */
@@ -2351,7 +2363,7 @@ static int do_patching(void)
     if (!info_only())
     {
         if (installed_patches == 0)
-            _fatal("Your installation has not been modified.");
+            _fatal("No patches were applied to your installation.");
         else if (!quietonsuccess)
             ui_success("Patching successful!");
     } /* if */
