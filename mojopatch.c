@@ -1749,6 +1749,15 @@ static int compare_directories(SerialArchive *ar,
 	/* check for files added in newer version... */
     for (i = files2; i != NULL; i = i->next)
     {
+        #if PLATFORM_MACOSX
+        /* !!! FIXME: Make this an option. */
+        if (strcmp(i->fname, ".DS_Store") == 0)
+        {
+            _dlog("...skipped .DS_Store file...");
+            continue;
+        } /* if */
+        #endif
+
         _dlog("([%s]...)", i->fname);
 
         snprintf(filebuf1, sizeof (filebuf1), "%s%s%s", base1, PATH_SEP, i->fname);
