@@ -170,6 +170,13 @@ typedef enum
     ZLIB_UNCOMPRESS
 } ZlibOptions;
 
+typedef enum
+{
+    ISPATCHABLE_ERROR,
+    ISPATCHABLE_YES,
+    ISPATCHABLE_NO,
+    ISPATCHABLE_MATCHES,
+} IsPatchable;
 
 static int debug = 0;
 static int interactive = 0;
@@ -177,7 +184,7 @@ static int replace = 0;
 static int appending = 0;
 static int alwaysadd = 0;
 static int quietonsuccess = 0;
-static int skip_patch = 0;
+static int skip_patch = 0;  /* global flag to skip current patch. */
 static int zliblevel = 9;
 static PatchCommands command = COMMAND_NONE;
 
@@ -592,17 +599,22 @@ static void _current_operation(const char *fmt, ...)
 } /* _current_operation */
 
 
-/* don't taunt this function. */
-int version_ok(const char *ver, const char *allowed_ver, const char *newver)
+/* !!! FIXME: don't taunt this function. */
+/*
+ * ver == installed app's current version.
+ * allowed_ver == allowed versions ("123", "123 or 456", "less than 789").
+ * newver == version that patched app will become.
+ */
+IsPatchable version_ok(const char *ver, const char *allowed_ver, const char *newver)
 {
     char *ptr;
     char *buf;
 
-    if (*allowed_ver == '\0')
-        return 1;  /* No specified version? Anything is okay, then. */
+    if (*allowed_ver == '\0')  /* No specified version? Anything is okay. */
+        return ISPATCHABLE_YES;
 
-    if (strcmp(allowed_ver, newver) == 0)
-        return -1;  /* all patched up. */
+    if (strcmp(allowed_ver, newver) == 0)  /* all patched up? */
+        return ISPATCHABLE_MATCHES;
 
     buf = (char *) alloca(strlen(allowed_ver) + 1);
     strcpy(buf, allowed_ver);
@@ -618,31 +630,60 @@ int version_ok(const char *ver, const char *allowed_ver, const char *newver)
 
         dver = strtod(ver, &endptr);
         if (endptr == ver)
-            return 0;
+            return ISPATCHABLE_ERROR;
 
         dallow = strtod(ptr, &endptr);
         if (endptr == ptr)
-            return 0;
+            return ISPATCHABLE_ERROR;
 
         if (dver < dallow)
-            return(1);
-        else if (dver == dallow)
-            return(-1);
+            return(ISPATCHABLE_YES);
 
-        return(0);
+        return(ISPATCHABLE_NO);
     } /* if */
 
     while ((ptr = strstr(buf, " or ")) != NULL)
     {
         *ptr = '\0';
         if (strcmp(ver, buf) == 0)
-            return(1);
+            return(ISPATCHABLE_YES);
 
         buf = ptr + 4;
     } /* while */
 
-    return(strcmp(ver, buf) == 0);
+    return( (strcmp(ver, buf) == 0) ? ISPATCHABLE_YES : ISPATCHABLE_NO );
 } /* version_ok */
+
+
+static IsPatchable check_product_version(const char *ident,
+                                         const char *version,
+                                         const char *newversion)
+{
+    char buf[128];
+    IsPatchable retval = ISPATCHABLE_ERROR;
+
+    if (!get_product_version(ident, buf, sizeof (buf)))
+        _fatal("Can't determine product's installed version.");
+    else
+    {
+        retval = version_ok(buf, version, newversion);
+        if (retval == ISPATCHABLE_MATCHES)
+            _fatal("You seem to be all patched up already!");
+        else if (retval == ISPATCHABLE_ERROR)
+            _fatal("This patch is misbuilt! Contact your vendor!");
+        else if (retval == ISPATCHABLE_NO)
+        {
+            _fatal("This patch applies to version '%s', but you have '%s'.",
+                    version, buf);
+        } /* else */
+        else
+        {
+            assert(retval == ISPATCHABLE_YES);
+        } /* else */
+    } /* else */
+
+    return(retval);
+} /* check_product_version */
 
 
 static int _do_xdelta(const char *fmt, ...)
@@ -2061,8 +2102,7 @@ static int manually_locate_product(const char *name, char *buf, size_t bufsize)
 } /* manually_locate_product */
 
 
-static int chdir_by_identifier(const char *name, const char *str,
-                               const char *version, const char *newversion)
+static int chdir_by_identifier(const char *name, const char *str)
 {
     char buf[MAXPATHLEN];
     int hasident = ((str != NULL) && (*str));
@@ -2092,7 +2132,7 @@ static int chdir_by_identifier(const char *name, const char *str,
         return(0);
     } /* if */
 
-    return(check_product_version(str, version, newversion));
+    return(1);
 } /* chdir_by_identifier */
 
 
@@ -2127,16 +2167,23 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 
     if (!info_only())
     {
-        int rc = chdir_by_identifier(h->product, h->identifier,
-                                     h->version, h->newversion);
-        if (rc != 1)
-            skip_patch = 1;
-    } /* if */
-
-    if (*h->readmefname)
-    {
-        if (!info_only())
-            retval = show_and_install_readme(h->readmefname, h->readmedata);
+        if (!chdir_by_identifier(h->product, h->identifier))
+            retval = PATCHERROR;
+        else
+        {
+            IsPatchable rc;
+            rc = check_product_version(h->identifier, h->version, h->newversion);
+            if (rc == ISPATCHABLE_ERROR)
+                retval = PATCHERROR;
+            else if ((rc == ISPATCHABLE_MATCHES) || (rc == ISPATCHABLE_NO))
+                skip_patch = 1;
+            else
+            {
+                assert(rc == ISPATCHABLE_YES);
+                if (*h->readmefname)
+                    retval = show_and_install_readme(h->readmefname, h->readmedata);
+            } /* else */
+        } /* else */
     } /* if */
 
     free(h->readmedata);
@@ -2151,6 +2198,8 @@ static int do_patching(void)
     SerialArchive ar;
     int report_error = 0;
     int retval = PATCHERROR;
+    int installed_patches = 0;
+    int skipped_patches = 0;
     long file_size = 0;  /* !!! FIXME: make this size_t? */
     int do_progress = 0;
 
@@ -2179,7 +2228,7 @@ static int do_patching(void)
         if (do_patch_operations(&ar, do_progress, file_size) == PATCHERROR)
             goto do_patching_done;
 
-        if (!info_only())
+        if ((!info_only()) && (!skip_patch))
         {
             _current_operation("Updating product version...");
             ui_total_progress(-1);
@@ -2198,7 +2247,13 @@ static int do_patching(void)
             } /* if */
         } /* if */
 
-        skip_patch = 0;  /* reset for next patch... */
+        if (!skip_patch)
+            installed_patches++;
+        else
+        {
+            skipped_patches++;
+            skip_patch = 0;  /* reset for next patch... */
+        } /* else */
 
         /* !!! FIXME: This loses command line overrides! */
         memset(&header, '\0', sizeof (header));
@@ -2206,12 +2261,15 @@ static int do_patching(void)
         report_error = 0;
     } /* while */
 
-    close_serialized_archive(&ar);
-
     retval = PATCHSUCCESS;
     ui_total_progress(100);
-    if ( (!info_only()) && (!quietonsuccess) )
-        ui_success("Patching successful!");
+    if (!info_only())
+    {
+        if (installed_patches == 0)
+            _fatal("Your installation has not been modified.");
+        else if (!quietonsuccess)
+            ui_success("Patching successful!");
+    }
 
 do_patching_done:
     close_serialized_archive(&ar);

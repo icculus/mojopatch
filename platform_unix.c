@@ -290,8 +290,8 @@ static char *find_info_plist_bundle_id(char *ptr)
 #endif  /* PLATFORM_MACOSX */
 
 
-int check_product_version(const char *ident, const char *version,
-                          const char *newversion)
+/* you are already chdir()'d when this is called. */
+int get_product_version(const char *ident, char *buf, size_t bufsize)
 {
 #if PLATFORM_MACOSX
     const char *fname = "Contents/Info.plist";  /* already chdir'd for this. */
@@ -300,7 +300,6 @@ int check_product_version(const char *ident, const char *version,
     long fsize;
     int retval = 0;
     FILE *io = NULL;
-    int knowver = 0;
 
     if ( !get_file_size(fname, &fsize) ) goto parse_info_plist_bailed;
     if ( (mem = malloc(fsize + 1)) == NULL ) goto parse_info_plist_bailed;
@@ -333,31 +332,25 @@ int check_product_version(const char *ident, const char *version,
     fclose(io);
 
     ptr = find_info_plist_version(mem);
-    if (ptr != NULL)
-    {
-        knowver = 1;
-        retval = version_ok(ptr, version, newversion);
-        if (retval == -1)
-            _fatal("You seem to be all patched up already!");
-        else if (retval == 0)
-        {
-            _fatal("This patch applies to version '%s', but you have '%s'.",
-                    version, ptr);
-        } /* else */
-    } /* if */
+    if (ptr == NULL)
+        return(0);
+
+    strncpy(buf, ptr, bufsize);
+    buf[bufsize-1] = '\0';
+    retval = 1;
 
 parse_info_plist_bailed:
     free(mem);
     if (io != NULL)
         fclose(io);
 
-    if (!knowver) _fatal("Can't determine product's installed version.");
     return(retval);
 #else
     _fatal("Not implemented!");  /* !!! FIXME */
+    *buf = '\0';
     return(0);
 #endif
-} /* parse_info_dot_plist */
+} /* check_product_version */
 
 
 int locate_product_by_identifier(const char *str, char *buf, size_t bufsize)
@@ -369,18 +362,21 @@ int locate_product_by_identifier(const char *str, char *buf, size_t bufsize)
     CFStringRef id = CFStringCreateWithBytes(NULL, str, strlen(str),
                                              kCFStringEncodingISOLatin1, 0);
 
-    /*
-     * !!! FIXME: This has a tendency to find installs in the trashcan.  :/
-     * !!! FIXME:  It might be worth checking if the product install has
-     * !!! FIXME:  a dir named ".Trash" in the hierarchy, and considering
-     * !!! FIXME:  it not found if so.
-     */
     rc = LSFindApplicationForInfo(kLSUnknownCreator, id, NULL, NULL, &url);
     CFRelease(id);
     if (rc == noErr)
     {
         Boolean b = CFURLGetFileSystemRepresentation(url, TRUE, buf, bufsize);
         CFRelease(url);
+        if (1) //((b) && (strstr(buf, "/.Trash/")))
+        {
+            _fatal("It looks like your installation is in the Trash can."
+                    " Please take it out of the trash first."
+                    " If this is an old installation, please empty your"
+                    " trash so we find the right one.");
+            b = 0;
+        } /* if */
+
         return(b != 0);
     } /* if */
 
