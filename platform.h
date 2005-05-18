@@ -37,6 +37,14 @@ typedef struct MOJOPATCH_FILELIST
     struct MOJOPATCH_FILELIST *next;
 } file_list;
 
+typedef enum
+{
+    SPAWN_FILENOTFOUND,
+    SPAWN_FAILED,
+    SPAWN_RETURNGOOD,
+    SPAWN_RETURNBAD
+} SpawnResult;
+
 /* Your mainline calls this. */
 int mojopatch_main(int argc, char **argv);
 
@@ -57,11 +65,12 @@ file_list *make_filelist(const char *base);  /* must use malloc(). */
 int get_file_size(const char *fname, long *fsize);
 char *get_current_dir(char *buf, size_t bufsize);
 char *get_realpath(const char *path);
-int spawn_xdelta(const char *cmdline);
 int update_version(const char *ver);
 int calc_tmp_filenames(char **tmp1, char **tmp2);
 int locate_product_by_identifier(const char *str, char *buf, size_t bufsize);
 int get_product_version(const char *ident, char *buf, size_t bufsize);
+SpawnResult spawn_xdelta(const char *cmdline);
+SpawnResult spawn_script(const char *scriptname, const char *dstdir);
 
 #ifdef __cplusplus
 }

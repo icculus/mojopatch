@@ -201,6 +201,8 @@ static PatchHeader header;
 static char **ignorelist = NULL;
 static int ignorecount = 0;
 
+char *patchfiledir = NULL;
+
 static unsigned int maxxdeltamem = 128;  /* in megabytes. */
 
 static unsigned char iobuf[512 * 1024];
@@ -697,7 +699,7 @@ static int _do_xdelta(const char *fmt, ...)
     va_end(ap);
     buf[sizeof(buf)-1] = '\0';
 	_dlog("(xdelta call: [%s].)", buf);
-    return(spawn_xdelta(buf));
+    return(spawn_xdelta(buf) == SPAWN_RETURNGOOD);
 } /* _do_xdelta */
 
 
@@ -2147,6 +2149,35 @@ static int chdir_by_identifier(const char *name, const char *str)
 } /* chdir_by_identifier */
 
 
+static int run_script(const char *name)
+{
+    SpawnResult rc;
+    char cwd[MAX_PATH];
+
+    if (getcwd(cwd, sizeof (cwd)) == NULL)
+        return(0);
+
+    if (patchfiledir != NULL)
+    {
+        if (chdir(patchfiledir) == -1)
+            return(0);
+    } /* if */
+
+    rc = spawn_script(name, cwd);
+
+    if (chdir(cwd) == -1)
+        return(0);
+
+    if (rc == SPAWN_FILENOTFOUND)
+        return(1);  /* "success" */
+
+    else if (rc == SPAWN_FAILED)
+        _fatal("Failed to run %s script!");
+
+    return(rc == SPAWN_RETURNGOOD);
+} /* run_script */
+
+
 static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 {
     int retval = PATCHSUCCESS;
@@ -2196,7 +2227,9 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
             else
             {
                 assert(rc == ISPATCHABLE_YES);
-                if (*h->readmefname)
+                if (!run_script("prepatch"))
+                    retval = PATCHERROR;
+                else if (*h->readmefname)
                     retval = show_and_install_readme(h->readmefname, h->readmedata);
             } /* else */
         } /* else */
@@ -2207,6 +2240,23 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 
     return(retval);
 } /* process_patch_header */
+
+
+static char *get_real_filedir(const char *fname)
+{
+    char *ptr;
+    char *buf = (char *) alloca(strlen(fname) + 1);
+    strcpy(buf, fname);
+
+    assert(strlen(PATH_SEP) == 1);  /* need better code if this doesn't fly. */
+    ptr = strrchr(buf, (PATH_SEP)[0]);
+    if (!ptr)
+        strcpy(buf, ".");  /* current dir */
+    else
+        *ptr = '\0';  /* chop filename. */
+
+    return(get_realpath(buf));
+} /* get_real_filedir */
 
 
 static int do_patching(void)
@@ -2224,6 +2274,12 @@ static int do_patching(void)
 
     if (!open_serialized_archive(&ar, patchfile, 1, &do_progress, &file_size))
         return(PATCHERROR);
+
+    if ((patchfiledir = get_real_filedir(patchfile)) == NULL)
+    {
+        _fatal("internal error!");  /* !!! FIXME: better error? */
+        return(PATCHERROR);
+    } /* if */
 
     if (file_size == 0)
         do_progress = 0;  /* prevent a division by zero. */
@@ -2263,12 +2319,16 @@ static int do_patching(void)
             } /* if */
         } /* if */
 
-        if (!skip_patch)
-            installed_patches++;
-        else
+        if (skip_patch)
         {
             skipped_patches++;
             skip_patch = 0;  /* reset for next patch... */
+        } /* if */
+        else
+        {
+            installed_patches++;
+            if (!run_script("postpatch"))
+                goto do_patching_done;
         } /* else */
 
         /* !!! FIXME: This loses command line overrides! */
@@ -2285,18 +2345,28 @@ static int do_patching(void)
             _fatal("Your installation has not been modified.");
         else if (!quietonsuccess)
             ui_success("Patching successful!");
-    }
+    } /* if */
 
 do_patching_done:
     close_serialized_archive(&ar);
 
-    if ((retval == PATCHERROR) && (report_error))
+    if (retval == PATCHERROR)
     {
         ui_total_progress(-1);
-        _fatal("There were problems, so I'm aborting.");
-        if (!info_only())
-            _fatal("The product is possibly damaged and requires a fresh installation.");
+        if (report_error)
+        {
+            _fatal("There were problems, so I'm aborting.");
+            if (!info_only())
+                _fatal("The product is possibly damaged and requires a fresh installation.");
+        } /* if */
     } /* if */
+    else
+    {
+        run_script("patchingdone");
+    } /* else */
+
+    free(patchfiledir);
+    patchfiledir = NULL;
 
     return(retval);
 } /* do_patching */

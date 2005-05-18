@@ -467,29 +467,25 @@ static void *spawn_thread(void *arg)
 } /* spawn_thread */
 
 
-int spawn_xdelta(const char *cmdline)
+static SpawnResult spawn_binary(const char *cmd)
 {
-    const char *binname = "xdelta";
-    char *cmd = alloca(strlen(cmdline) + strlen(basedir) + strlen(binname) + 5);
-    if (!cmd)
-        return(0);
-
-    sprintf(cmd, "\"%s/%s\" %s", basedir, binname, cmdline);
+    int *ptr = NULL;
+    int rc = 127;
 
 #if !USE_PTHREAD
-    int rc = 0;
     pid_t pid = fork();
     if (pid == -1)
     {
         int e = errno;
         _fatal("fork() failed: %d (%s)", e, strerror(e));
-        return(0);
+        return(SPAWN_FAILED);
     } /* if */
 
     else if (pid == 0)   /* child process. */
     {
-        rc = spawn_thread(cmd);
-        exit(1);  /* !!! FIXME    *((int *) rc) == 0 ); */
+        ptr = (int *) spawn_thread((void *) cmd);
+        if (ptr) rc = *ptr;
+        exit(rc != 0);
     } /* else if */
 
     else
@@ -499,16 +495,15 @@ int spawn_xdelta(const char *cmdline)
             ui_pump();
             usleep(10000);
         } /* while */
-        return(1);
+        return((rc == 0) ? SPAWN_RETURNGOOD : SPAWN_RETURNBAD);
     } /* else */
 #else
     pthread_t thr;
-    void *rc;
 
     thread_alive = 1;
 
     if (pthread_create(&thr, NULL, spawn_thread, cmd) != 0)
-        return(0);
+        return(SPAWN_FAILED);
 
     while (thread_alive)
     {
@@ -516,10 +511,36 @@ int spawn_xdelta(const char *cmdline)
         usleep(10000);
     } /* while */
 
-    pthread_join(thr, &rc);
-    return(1);  /* !!! FIXME    *((int *) rc) == 0 ); */
+    pthread_join(thr, (void **) &ptr);
+    if (ptr) rc = *ptr;
+    return((rc == 0) ? SPAWN_RETURNGOOD : SPAWN_RETURNBAD);
 #endif
+} /* spawn_binary */
+
+
+SpawnResult spawn_xdelta(const char *cmdline)
+{
+    const char *binname = "xdelta";
+    char *cmd = alloca(strlen(cmdline) + strlen(basedir) + strlen(binname) + 5);
+    if (!cmd)
+        return(SPAWN_FAILED);
+
+    sprintf(cmd, "\"%s/%s\" %s", basedir, binname, cmdline);
+    return(spawn_binary(cmd));
 } /* spawn_xdelta */
+
+
+/* you are chdir()'d to the directory with the patchfile here. */
+SpawnResult spawn_script(const char *scriptname, const char *dstdir)
+{
+    char *cmd = alloca(strlen(scriptname) + strlen(dstdir) + 32);
+
+    if (!file_exists(scriptname))
+        return(SPAWN_FILENOTFOUND);
+
+    sprintf(cmd, "./%s '%s'", scriptname, dstdir);
+    return(spawn_binary(cmd));
+} /* spawn_script */
 
 
 char *get_current_dir(char *buf, size_t bufsize)
