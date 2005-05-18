@@ -3,7 +3,6 @@
 - Move confirm() to UI abstraction.
 - Integrate xdelta into single binary?
 - Lots of tests for dir/notdir or file/notfile...no symlinks support, etc.
-- serialization of patchfile.
 - Standardize datatypes.
 - Make everything fit in 80 columns...
 - Split mojopatch.c into multiple files.
@@ -20,9 +19,6 @@
   mostly work with the stdio UI driver...
 - XCode project for MacOS
 - MacOS Classic? :)
-- "Patching successful" is said even if there's a catastropic failure, because
-  of the nasty skip_patch code.
-- Ignore .DS_Store files by default on MacOS X?
 - Documentation! Anything at all!
 - Write a GUI for generating patches.
 
