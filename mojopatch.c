@@ -2124,6 +2124,15 @@ static int chdir_by_identifier(const char *name, const char *str)
     if (hasident)
     {
         found = locate_product_by_identifier(str, buf, sizeof (buf));
+
+        /*
+         * Platform-specific issue...it's there, but there's a problem, like
+         *  MacOS found it, but it's in the trashcan, etc. The platform
+         *  driver should call the UI routines to explain the issue.
+         */
+        if (found == -1)
+            return(0);
+
         if (!found)
             _log("Couldn't find product. Perhaps it isn't installed?");
     } /* if */
