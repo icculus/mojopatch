@@ -48,7 +48,7 @@
  *  This is to prevent incompatible builds of the program from (mis)processing
  *  a patchfile.
  */
-#define VERSION "0.0.5" VER_EXT_ZLIB
+#define VERSION "0.0.6" VER_EXT_ZLIB
 
 #define DEFAULT_PATCHFILENAME "default.mojopatch"
 
@@ -77,6 +77,7 @@ typedef struct
     char *readmedata;
     char renamedir[STATIC_STRING_SIZE];
     char titlebar[STATIC_STRING_SIZE];
+    char startupmsg[STATIC_STRING_SIZE];
 } PatchHeader;
 
 typedef enum
@@ -353,6 +354,7 @@ static int serialize_header(SerialArchive *ar, PatchHeader *h, int *legitEOF)
     if (serialize_asciz_string(ar, &h->readmedata))
     if (serialize_static_string_if_empty(ar, h->renamedir))
     if (serialize_static_string_if_empty(ar, h->titlebar))
+    if (serialize_static_string_if_empty(ar, h->startupmsg))
         return(flush_archive(ar));
 
     return(0);
@@ -2148,6 +2150,7 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
     header_log("Readme: \"%s\".", h->readmefname);
     header_log("Renamedir: \"%s\".", h->renamedir);
     header_log("UI titlebar: \"%s\".", h->titlebar);
+    header_log("Startup msg: \"%s\".", h->startupmsg);
 
     /* Fill in a default titlebar if needed. */
     if (*h->titlebar == '\0')
@@ -2164,6 +2167,10 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
     } /* if */
 
     ui_title(h->titlebar);
+
+    /* show a message box before starting... */
+    if (*(h->startupmsg))
+        ui_msgbox(h->startupmsg);
 
     if (!info_only())
     {
@@ -2302,6 +2309,8 @@ static int do_usage(const char *argv0)
     _log("    --append (creation appends to existing patchfile)");
     _log("    --alwaysadd (put ADDs instead of PATCHs into the patchfile)");
     _log("    --quietonsuccess (Don't do msgbox on successful finish)");
+    _log("    --startupmsg (msgbox text to show at startup)");
+    _log("    --ui (UI driver to use for this run)");
     _log("    --readme (README filename to display/install)");
     _log("    --renamedir (What patched dir should be called)");
     _log("    --zliblevel (compression, 0-9: 0 == fastest, 9 == best)");
@@ -2387,6 +2396,8 @@ static int parse_cmdline(int argc, char **argv)
             make_static_string(header.renamedir, argv[++i]);
         else if (strcmp(argv[i], "--titlebar") == 0)
             make_static_string(header.titlebar, argv[++i]);
+        else if (strcmp(argv[i], "--startupmsg") == 0)
+            make_static_string(header.startupmsg, argv[++i]);
         else if (strcmp(argv[i], "--ui") == 0)
             i++;  /* (really handled elsewhere.) Just skip ui driver name. */
         else if (strcmp(argv[i], "--zliblevel") == 0)
