@@ -524,7 +524,21 @@ int spawn_xdelta(const char *cmdline)
 
 char *get_current_dir(char *buf, size_t bufsize)
 {
-    return(getcwd(buf, bufsize));
+    size_t buflen = 0;
+    if (getcwd(buf, bufsize) == NULL)
+        return(NULL);
+
+    buflen = strlen(buf) + 1;
+    if (buflen <= bufsize)
+    {
+        *buf = '\0';
+        return(NULL);
+    } /* if */
+
+    if (buf[buflen - 2] != '/')
+        strcat(buf, "/");
+
+    return(buf);
 } /* get_current_dir */
 
 

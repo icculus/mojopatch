@@ -128,7 +128,7 @@ char *get_current_dir(char *buf, size_t bufsize);
     if (buflen <= bufsize)
     {
         *buf = '\0';
-        return NULL;
+        return(NULL);
     } /* if */
 
     if (buf[buflen - 2] != '\\')
