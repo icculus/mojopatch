@@ -55,7 +55,7 @@ int file_is_directory(const char *fname);
 int file_is_symlink(const char *fname);
 file_list *make_filelist(const char *base);  /* must use malloc(). */
 int get_file_size(const char *fname, long *fsize);
-char *get_current_dir(void);
+char *get_current_dir(char *buf, size_t bufsize);
 char *get_realpath(const char *path);
 int spawn_xdelta(const char *cmdline);
 int update_version(const char *ver);

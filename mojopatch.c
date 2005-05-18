@@ -2254,7 +2254,7 @@ static int do_patching(void)
             if (*header.renamedir)
             {
                 char cwdbuf[MAX_PATH];
-                if (getcwd(cwdbuf, sizeof (cwdbuf)) != NULL)
+                if (get_current_dir(cwdbuf, sizeof (cwdbuf)) != NULL)
                 {
                     chdir("..");
                     rename(cwdbuf, header.renamedir); /* !!! FIXME: retval? */

@@ -122,25 +122,19 @@ int get_file_size(const char *fname, long *fsize)
 } /* get_file_size */
 
 
-char *get_current_dir(void)
+char *get_current_dir(char *buf, size_t bufsize);
 {
-    LPTSTR retval;
-    DWORD buflen = 0;
-
-    buflen = GetCurrentDirectory(buflen, NULL);
-    retval = (LPTSTR) malloc(sizeof (TCHAR) * (buflen + 2));
-    if (retval == NULL)
+    DWORD buflen = GetCurrentDirectory(bufsize, buf);
+    if (buflen <= bufsize)
     {
-        fprintf(stderr, "Error: out of memory.\n");
-        return(NULL);
+        *buf = '\0';
+        return NULL;
     } /* if */
 
-    GetCurrentDirectory(buflen, retval);
+    if (buf[buflen - 2] != '\\')
+        strcat(buf, "\\");
 
-    if (retval[buflen - 2] != '\\')
-        strcat(retval, "\\");
-
-    return((char *) retval);
+    return(buf);
 } /* get_current_dir */
 
 

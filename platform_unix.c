@@ -522,6 +522,12 @@ int spawn_xdelta(const char *cmdline)
 } /* spawn_xdelta */
 
 
+char *get_current_dir(char *buf, size_t bufsize)
+{
+    return(getcwd(buf, bufsize));
+} /* get_current_dir */
+
+
 static void find_basedir(int *argc, char **argv)
 {
     const char *argv0 = argv[0];
