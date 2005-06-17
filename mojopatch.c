@@ -2163,6 +2163,9 @@ static int run_script(const char *name)
     SpawnResult rc;
     char cwd[MAX_PATH];
 
+    if (info_only())  /* don't run scripts unless applying a patch... */
+        return(1);
+
     if (getcwd(cwd, sizeof (cwd)) == NULL)
     {
         _fatal("Couldn't determine current working directory!");
