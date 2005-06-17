@@ -2234,7 +2234,12 @@ static int process_patch_header(SerialArchive *ar, PatchHeader *h)
 
     /* show a message box before starting... */
     if (*(h->startupmsg))
-        ui_msgbox(h->startupmsg);
+    {
+        if (!info_only())
+            ui_msgbox(h->startupmsg);
+        else
+            _log("startup message box:\n%s\n\n", h->startupmsg);
+    } /* if */
 
     if (!info_only())
     {
