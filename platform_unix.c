@@ -627,7 +627,7 @@ static void find_basedir(int *argc, char **argv)
     if (realbuf[strlen(realbuf)-1] != '/')
         strcat(realbuf, "/");
 
-    basedir = malloc(strlen(realbuf + 1));
+    basedir = malloc(strlen(realbuf) + 1);
     strcpy(basedir, realbuf);
 
 #if PLATFORM_MACOSX
