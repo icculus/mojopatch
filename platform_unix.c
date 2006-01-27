@@ -359,14 +359,18 @@ int locate_product_by_identifier(const char *str, char *buf, size_t bufsize)
     /* Ask LaunchServices to find product by identifier... */
     OSStatus rc;
     CFURLRef url = NULL;
-    CFStringRef id = CFStringCreateWithBytes(NULL, str, strlen(str),
+    CFStringRef id = CFStringCreateWithBytes(NULL,
+                                             (const unsigned char *) str,
+                                             strlen(str),
                                              kCFStringEncodingISOLatin1, 0);
 
     rc = LSFindApplicationForInfo(kLSUnknownCreator, id, NULL, NULL, &url);
     CFRelease(id);
     if (rc == noErr)
     {
-        int b = (int) CFURLGetFileSystemRepresentation(url, TRUE, buf, bufsize);
+        int b = (int) CFURLGetFileSystemRepresentation(url, TRUE,
+                                                       (unsigned char *) buf,
+                                                       bufsize);
         if (b) b = 1;
         CFRelease(url);
         if ((b) && (strstr(buf, "/.Trash/")))
