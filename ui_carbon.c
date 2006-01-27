@@ -32,7 +32,9 @@ static void ui_pump_carbon(void)
 
 static void ui_title_carbon(const char *str)
 {
-    CFStringRef cfstr = CFStringCreateWithBytes(NULL, str, strlen(str),
+    CFStringRef cfstr = CFStringCreateWithBytes(NULL,
+                                                (const unsigned char *) str,
+                                                strlen(str),
                                                 kCFStringEncodingISOLatin1, 0);
     SetWindowTitleWithCFString(window, cfstr);
     CFRelease(cfstr);
@@ -65,10 +67,14 @@ static int do_msgbox(const char *str, AlertType alert_type,
     const char *_title = "MojoPatch";
     int retval = 0;
     DialogItemIndex val = 0;
-    CFStringRef title = CFStringCreateWithBytes(NULL, _title, strlen(_title),
+    CFStringRef title = CFStringCreateWithBytes(NULL,
+                                                (const unsigned char *) _title,
+                                                strlen(_title),
                                                 kCFStringEncodingISOLatin1, 0);
-    CFStringRef msg = CFStringCreateWithBytes(NULL, str, strlen(str),
-                                                kCFStringEncodingISOLatin1, 0);
+    CFStringRef msg = CFStringCreateWithBytes(NULL,
+                                              (const unsigned char *) str,
+                                              strlen(str),
+                                              kCFStringEncodingISOLatin1, 0);
     if ((msg != NULL) && (title != NULL))
     {
         DialogRef dlg = NULL;
@@ -158,7 +164,7 @@ static int ui_file_picker_carbon(char *buf, size_t bufsize)
         {
             /* !!! FIXME: Check return values here! */
             BlockMoveData(*desc.dataHandle, &fsref, sizeof (fsref));
-            FSRefMakePath(&fsref, buf, bufsize - 1);
+            FSRefMakePath(&fsref, (unsigned char *) buf, bufsize - 1);
             buf[bufsize - 1] = '\0';
             AEDisposeDesc(&desc);
             retval = 1;
