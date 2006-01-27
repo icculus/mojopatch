@@ -2,7 +2,7 @@
 # Quick Makefile by ryan c. gordon. (icculus@clutteredmind.org)
 
 CC := gcc
-LINKER := gcc
+LD := gcc
 BINDIR := bin
 SRCDIR := .
 
@@ -54,6 +54,9 @@ ifeq ($(strip $(use_pthread)),true)
   endif
 endif
 
+CFLAGS += $(EXTRACFLAGS)
+LDFLAGS += $(EXTRALDFLAGS)
+
 MOJOPATCHSRCS := mojopatch.c md5.c ui.c ui_carbon.c ui_stdio.c $(PLATFORMSRCS)
 OBJS1 := $(MOJOPATCHSRCS:.c=.o)
 OBJS2 := $(OBJS1:.cpp=.o)
@@ -78,7 +81,7 @@ $(BINDIR)/%.o: $(SRCDIR)/%.c
 	$(CC) -c -o $@ $< $(CFLAGS)
 
 $(BINDIR)/mojopatch : $(BINDIR) $(MOJOPATCHOBJS)
-	$(LINKER) $(LDFLAGS) -o $@ $(MOJOPATCHOBJS)
+	$(LD) $(LDFLAGS) -o $@ $(MOJOPATCHOBJS)
 
 $(BINDIR):
 	mkdir -p $(BINDIR)
