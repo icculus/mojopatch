@@ -48,7 +48,7 @@
  *  This is to prevent incompatible builds of the program from (mis)processing
  *  a patchfile.
  */
-#define VERSION "0.0.6" VER_EXT_ZLIB
+#define VERSION "0.0.7" VER_EXT_ZLIB
 
 #define DEFAULT_PATCHFILENAME "default.mojopatch"
 
@@ -108,16 +108,16 @@ typedef struct
 {
     OperationType operation;
     char fname[STATIC_STRING_SIZE];
-    size_t fsize;
+    unsigned int fsize;
     md5_byte_t md5[16];
-    mode_t mode;
+    unsigned int mode;
 } AddOperation;
 
 typedef struct
 {
     OperationType operation;
     char fname[STATIC_STRING_SIZE];
-    mode_t mode;
+    unsigned int mode;
 } AddDirOperation;
 
 typedef struct
@@ -126,9 +126,9 @@ typedef struct
     char fname[STATIC_STRING_SIZE];
     md5_byte_t md5_1[16];
     md5_byte_t md5_2[16];
-    size_t fsize;
-    size_t deltasize;
-    mode_t mode;
+    unsigned int fsize;
+    unsigned int deltasize;
+    unsigned int mode;
 } PatchOperation;
 
 typedef struct
@@ -166,7 +166,7 @@ typedef enum
 
 typedef enum
 {
-    ZLIB_NONE,
+    ZLIB_NONE = 0,
     ZLIB_COMPRESS,
     ZLIB_UNCOMPRESS
 } ZlibOptions;
@@ -242,14 +242,37 @@ static int serialize(SerialArchive *ar, void *val, size_t size)
 
 #define SERIALIZE(ar, x) serialize(ar, &x, sizeof (x))
 
+static int serialize_uint32(SerialArchive *ar, unsigned int *val)
+{
+    assert(sizeof (unsigned int) == 4);
+    unsigned int x = *val;
+
+    #if PLATFORM_BIGENDIAN
+    if (!ar->reading)
+	    x = (((x)>>24) + (((x)>>8)&0xff00) + (((x)<<8)&0xff0000) + ((x)<<24));
+    #endif
+
+    if (!SERIALIZE(ar, x))
+        return(0);
+
+    #if PLATFORM_BIGENDIAN
+    if (ar->reading)
+    	x = (((x)>>24) + (((x)>>8)&0xff00) + (((x)<<8)&0xff0000) + ((x)<<24));
+    #endif
+
+    *val = x;
+    return(1);
+} /* serialize_uint32 */
+
+
 static int serialize_static_string(SerialArchive *ar, char *val)
 {
-    size_t len;
+    unsigned int len = 0;
 
     if (!ar->reading)
-        len = strlen(val);
+        len = (unsigned int) strlen(val);
 
-    if (!SERIALIZE(ar, len))
+    if (!serialize_uint32(ar, &len))
         return(0);
 
     if (len >= STATIC_STRING_SIZE)
@@ -388,9 +411,9 @@ static int serialize_add_op(SerialArchive *ar, void *d)
     assert((add->operation == OPERATION_ADD) ||
            (add->operation == OPERATION_REPLACE));
     if (serialize_static_string(ar, add->fname))
-    if (SERIALIZE(ar, add->fsize))
+    if (serialize_uint32(ar, &add->fsize))
     if (SERIALIZE(ar, add->md5))
-    if (SERIALIZE(ar, add->mode))
+    if (serialize_uint32(ar, &add->mode))
         return(1);
 
     return(0);
@@ -401,7 +424,7 @@ static int serialize_adddir_op(SerialArchive *ar, void *d)
     AddDirOperation *adddir = (AddDirOperation *) d;
     assert(adddir->operation == OPERATION_ADDDIRECTORY);
     if (serialize_static_string(ar, adddir->fname))
-    if (SERIALIZE(ar, adddir->mode))
+    if (serialize_uint32(ar, &adddir->mode))
         return(1);
 
     return(0);
@@ -414,9 +437,9 @@ static int serialize_patch_op(SerialArchive *ar, void *d)
     if (serialize_static_string(ar, patch->fname))
     if (SERIALIZE(ar, patch->md5_1))
     if (SERIALIZE(ar, patch->md5_2))
-    if (SERIALIZE(ar, patch->fsize))
-    if (SERIALIZE(ar, patch->deltasize))
-    if (SERIALIZE(ar, patch->mode))
+    if (serialize_uint32(ar, &patch->fsize))
+    if (serialize_uint32(ar, &patch->deltasize))
+    if (serialize_uint32(ar, &patch->mode))
         return(1);
 
     return(0);
@@ -477,9 +500,11 @@ static OpHandlers operation_handlers[OPERATION_TOTAL] =
 
 static int serialize_operation(SerialArchive *ar, Operations *ops)
 {
-    if (!SERIALIZE(ar, ops->operation))
+    unsigned char op = (unsigned char) ops->operation;
+    if (!SERIALIZE(ar, op))
         return(0);
 
+    ops->operation = (OperationType) op;
     if ((ops->operation < 0) || (ops->operation >= OPERATION_TOTAL))
     {
         _fatal("Invalid operation in patch file.");
@@ -497,7 +522,7 @@ static int open_serialized_archive(SerialArchive *ar,
                                    const char *fname,
                                    int is_reading,
                                    int *sizeok,
-                                   size_t *file_size)
+                                   unsigned int *file_size)
 {
     memset(ar, '\0', sizeof (*ar));
     if (strcmp(fname, "-") == 0)  /* read from stdin? */
@@ -887,7 +912,7 @@ static int do_rename(const char *from, const char *to)
 {
     FILE *in;
     FILE *out;
-    long fsize;
+    unsigned int fsize;
     int rc;
 
     unlink(to);  /* just in case. */
@@ -1237,7 +1262,7 @@ static int put_add(SerialArchive *ar, const char *fname)
 
     ops.operation = (replace) ? OPERATION_REPLACE : OPERATION_ADD;
     ops.add.fsize = statbuf.st_size;
-    ops.add.mode = (mode_t) statbuf.st_mode;
+    ops.add.mode = (unsigned int) statbuf.st_mode;
     make_static_string(ops.add.fname, fname);
 
     if (!serialize_operation(ar, &ops))
@@ -1394,7 +1419,7 @@ static int put_add_dir(SerialArchive *ar, const char *fname)
     } /* if */
 
     ops.operation = OPERATION_ADDDIRECTORY;
-    ops.adddir.mode = (mode_t) statbuf.st_mode;
+    ops.adddir.mode = (unsigned int) statbuf.st_mode;
     make_static_string(ops.adddir.fname, fname);
 
     if (!serialize_operation(ar, &ops))
@@ -1562,7 +1587,7 @@ static int put_patch(SerialArchive *ar, const char *fname1, const char *fname2)
     } /* if */
 
     ops.operation = OPERATION_PATCH;
-    ops.patch.mode = (mode_t) statbuf.st_mode;
+    ops.patch.mode = (unsigned int) statbuf.st_mode;
     ops.patch.fsize = statbuf.st_size;
     make_static_string(ops.patch.fname, fname2);
     if (!serialize_operation(ar, &ops))
@@ -1837,7 +1862,7 @@ static char *read_whole_file(const char *fname)
     int i;
     int rc;
     FILE *io = NULL;
-    long fsize = 0;
+    unsigned int fsize = 0;
     char *retval = NULL;
 
     if (!get_file_size(fname, &fsize))
@@ -1889,7 +1914,7 @@ static int create_patchfile(void)
 {
     SerialArchive ar;
     int retval = PATCHSUCCESS;
-    size_t fsize;
+    unsigned int fsize;
     char *real1 = NULL;
     char *real2 = NULL;
     char *real3 = NULL;
@@ -2293,7 +2318,7 @@ static int do_patching(void)
     int retval = PATCHERROR;
     int installed_patches = 0;
     int skipped_patches = 0;
-    long file_size = 0;  /* !!! FIXME: make this size_t? */
+    unsigned int file_size = 0;
     int do_progress = 0;
 
     ui_total_progress(do_progress ? 0 : -1);
@@ -2620,6 +2645,9 @@ int mojopatch_main(int argc, char **argv)
 {
 	time_t starttime = time(NULL);
     int retval = PATCHSUCCESS;
+
+    /* !!! FIXME: We need to serialize this, so we serialize it as uint32. */
+    assert(sizeof (mode_t) == sizeof (unsigned int));
 
     memset(&header, '\0', sizeof (header));
 

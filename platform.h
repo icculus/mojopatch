@@ -6,6 +6,12 @@
 extern "C" {
 #endif
 
+#ifdef __POWERPC__
+#define PLATFORM_BIGENDIAN 0
+#else
+#define PLATFORM_BIGENDIAN 1
+#endif
+
 #define PATCHERROR    0
 #define PATCHSUCCESS  1
 
@@ -62,7 +68,7 @@ int file_exists(const char *fname);
 int file_is_directory(const char *fname);
 int file_is_symlink(const char *fname);
 file_list *make_filelist(const char *base);  /* must use malloc(). */
-int get_file_size(const char *fname, long *fsize);
+int get_file_size(const char *fname, unsigned int *fsize);
 char *get_current_dir(char *buf, size_t bufsize);
 char *get_realpath(const char *path);
 int update_version(const char *ver);

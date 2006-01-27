@@ -99,7 +99,7 @@ file_list *make_filelist(const char *base)
 } /* make_filelist */
 
 
-int get_file_size(const char *fname, long *fsize)
+int get_file_size(const char *fname, unsigned int *fsize)
 {
     DWORD FileSz;
     DWORD FileSzHigh;

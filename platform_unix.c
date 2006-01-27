@@ -126,7 +126,7 @@ file_list *make_filelist(const char *base)
 } /* make_filelist */
 
 
-int get_file_size(const char *fname, long *fsize)
+int get_file_size(const char *fname, unsigned int *fsize)
 {
     struct stat statbuf;
 
@@ -297,7 +297,7 @@ int get_product_version(const char *ident, char *buf, size_t bufsize)
     const char *fname = "Contents/Info.plist";  /* already chdir'd for this. */
     char *mem = NULL;
     char *ptr;
-    long fsize;
+    unsigned int fsize;
     int retval = 0;
     FILE *io = NULL;
 
@@ -395,7 +395,7 @@ int update_version(const char *ver)
     const char *fname = "Contents/Info.plist";  /* already chdir'd for this. */
     char *mem = NULL;
     char *ptr;
-    long fsize;
+    unsigned int fsize;
     int retval = 0;
     long writestart;
     long writeend;
