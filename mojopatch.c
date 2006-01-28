@@ -1363,7 +1363,7 @@ static int handle_add_op(SerialArchive *ar, OperationType op, void *d)
         goto handle_add_done;
     } /* if */
 
-    chmod(add->fname, add->mode);  /* !!! FIXME: Should this be an error condition? */
+    chmod(add->fname, (mode_t) add->mode);  /* !!! FIXME: Should this be an error condition? */
 
     _current_operation("VERIFY %s", final_path_element(add->fname));
     io = fopen(add->fname, "rb");
@@ -1466,7 +1466,7 @@ static int handle_adddir_op(SerialArchive *ar, OperationType op, void *d)
     } /* if */
 
     /* !!! FIXME: Pass this to mkdir? */
-    chmod(adddir->fname, adddir->mode);  /* !!! FIXME: Should this be an error condition? */
+    chmod(adddir->fname, (mode_t) adddir->mode);  /* !!! FIXME: Should this be an error condition? */
 
     _log("done ADDDIRECTORY.");
     return(PATCHSUCCESS);
@@ -1704,7 +1704,7 @@ static int handle_patch_op(SerialArchive *ar, OperationType op, void *d)
         return(PATCHERROR);
     } /* if */
 
-    chmod(patch->fname, patch->mode);  /* !!! FIXME: fatal error? */
+    chmod(patch->fname, (mode_t) patch->mode);  /* !!! FIXME: fatal error? */
 
     _log("done PATCH.");
     return(PATCHSUCCESS);
@@ -2647,7 +2647,7 @@ int mojopatch_main(int argc, char **argv)
     int retval = PATCHSUCCESS;
 
     /* !!! FIXME: We need to serialize this, so we serialize it as uint32. */
-    assert(sizeof (mode_t) == sizeof (unsigned int));
+    assert(sizeof (mode_t) <= sizeof (unsigned int));
 
     memset(&header, '\0', sizeof (header));
 
