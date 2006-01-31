@@ -7,9 +7,9 @@ extern "C" {
 #endif
 
 #ifdef __POWERPC__
-#define PLATFORM_BIGENDIAN 0
-#else
 #define PLATFORM_BIGENDIAN 1
+#else
+#define PLATFORM_BIGENDIAN 0
 #endif
 
 #define PATCHERROR    0
