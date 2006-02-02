@@ -256,8 +256,7 @@ static int serialize_uint32(SerialArchive *ar, unsigned int *val)
         return(0);
 
     #if PLATFORM_BIGENDIAN
-    if (ar->reading)
-    	x = (((x)>>24) + (((x)>>8)&0xff00) + (((x)<<8)&0xff0000) + ((x)<<24));
+   	x = (((x)>>24) + (((x)>>8)&0xff00) + (((x)<<8)&0xff0000) + ((x)<<24));
     #endif
 
     *val = x;
