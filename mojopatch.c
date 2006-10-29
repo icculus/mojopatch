@@ -245,24 +245,27 @@ static int serialize(SerialArchive *ar, void *val, size_t size)
 
 #define SERIALIZE(ar, x) serialize(ar, &x, sizeof (x))
 
+static inline unsigned int swapui32(unsigned int x)
+{
+#if PLATFORM_BIGENDIAN
+    return (((x)>>24) + (((x)>>8)&0xff00) + (((x)<<8)&0xff0000) + ((x)<<24));
+#else
+    return (x);
+#endif
+}
+
 static int serialize_uint32(SerialArchive *ar, unsigned int *val)
 {
     assert(sizeof (unsigned int) == 4);
     unsigned int x = *val;
 
-    #if PLATFORM_BIGENDIAN
     if (!ar->reading)
-	    x = (((x)>>24) + (((x)>>8)&0xff00) + (((x)<<8)&0xff0000) + ((x)<<24));
-    #endif
+	    x = swapui32(x);
 
     if (!SERIALIZE(ar, x))
         return(0);
 
-    #if PLATFORM_BIGENDIAN
-   	x = (((x)>>24) + (((x)>>8)&0xff00) + (((x)<<8)&0xff0000) + ((x)<<24));
-    #endif
-
-    *val = x;
+    *val = swapui32(x);
     return(1);
 } /* serialize_uint32 */
 
@@ -770,6 +773,8 @@ static int write_between_files_compress(FILE *in, FILE *out, long fsize)
 {
     uLongf compsize;
     uLongf uncompsize;
+    unsigned int uncompsizeui32;
+    unsigned int compsizeui32;
 
     while (fsize > 0)
     {
@@ -794,8 +799,11 @@ static int write_between_files_compress(FILE *in, FILE *out, long fsize)
         } /* if */
         ui_pump();
 
-        if ( (fwrite(&uncompsize, sizeof (uncompsize), 1, out) != 1) ||
-             (fwrite(&compsize, sizeof (compsize), 1, out) != 1) ||
+        /* !!! FIXME: serialize? */
+        uncompsizeui32 = swapui32(uncompsize);
+        compsizeui32 = swapui32(compsize);
+        if ( (fwrite(&uncompsizeui32, sizeof (uncompsizeui32), 1, out) != 1) ||
+             (fwrite(&compsizeui32, sizeof (compsizeui32), 1, out) != 1) ||
              (fwrite(compbuf, compsize, 1, out) != 1) )
         {
             _fatal("write error: %s.", strerror(errno));
@@ -813,15 +821,21 @@ static int write_between_files_uncompress(FILE *in, FILE *out,
 {
     uLongf compsize;
     uLongf uncompsize;
+    unsigned int uncompsizeui32;
+    unsigned int compsizeui32;
 
     while (fsize > 0)
     {
-        if ( (fread(&uncompsize, sizeof (uncompsize), 1, in) != 1) ||
-             (fread(&compsize, sizeof (compsize), 1, in) != 1) )
+        if ( (fread(&uncompsizeui32, sizeof (uncompsizeui32), 1, in) != 1) ||
+             (fread(&compsizeui32, sizeof (compsizeui32), 1, in) != 1) )
         {
             _fatal("read error: %s.", strerror(errno));
             return(PATCHERROR);
         } /* if */
+
+        /* !!! FIXME: serialize? */
+        uncompsize = swapui32(uncompsizeui32);
+        compsize = swapui32(compsizeui32);
 
         if ( (compsize > sizeof (compbuf)) || (uncompsize > sizeof (iobuf)) )
         {
