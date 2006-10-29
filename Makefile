@@ -1,5 +1,5 @@
 
-# Quick Makefile by ryan c. gordon. (icculus@clutteredmind.org)
+# Quick Makefile by ryan c. gordon. (icculus@icculus.org)
 
 CC := gcc
 LD := gcc

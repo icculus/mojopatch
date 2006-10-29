@@ -10,6 +10,9 @@
  *
  *----------------------------------------------------------------------------
  *
+ *  The latest version of MojoPatch is available here:
+ *    http://icculus.org/mojopatch/
+ *
  *  This software was written quickly, is not well-engineered, and may have
  *   catastrophic bugs. Its method is brute-force, at best. Use at your
  *   own risk. Don't eat yellow snow.
@@ -17,7 +20,7 @@
  *  Please see the file LICENSE in the root of the source tree.
  *
  *   Send patches, improvements, suggestions, etc to Ryan:
- *    icculus@clutteredmind.org.
+ *    icculus@icculus.org.
  *
  *----------------------------------------------------------------------------
  */
@@ -52,7 +55,7 @@
 
 #define DEFAULT_PATCHFILENAME "default.mojopatch"
 
-#define MOJOPATCHSIG "mojopatch " VERSION " (icculus@clutteredmind.org)\r\n"
+#define MOJOPATCHSIG "mojopatch " VERSION ": http://icculus.org/mojopatch/\r\n"
 
 #define STATIC_STRING_SIZE 1024
 
