@@ -1,8 +1,10 @@
 #!/bin/sh
 
+CPUCOUNT=`sysctl -n hw.ncpu`
+
 # Build a Universal binary, gcc 3.3 on PowerPC and gcc 4 on Intel...
-make BINDIR=bin-ppc CC=gcc-3.3 LD=gcc-3.3 EXTRACFLAGS="-arch ppc" EXTRALDFLAGS="-arch ppc" $* || exit 1
-make BINDIR=bin-i386 CC=gcc-4.0 LD=gcc-4.0 EXTRACFLAGS="-arch i386" EXTRALDFLAGS="-arch i386" $* || exit 1
+make -j$CPUCOUNT BINDIR=bin-ppc CC=gcc-3.3 LD=gcc-3.3 EXTRACFLAGS="-arch ppc" EXTRALDFLAGS="-arch ppc" $* || exit 1
+make -j$CPUCOUNT BINDIR=bin-i386 CC=gcc-4.0 LD=gcc-4.0 EXTRACFLAGS="-arch i386" EXTRALDFLAGS="-arch i386" $* || exit 1
 
 mkdir -p bin
 for feh in `ls bin-ppc` ; do
