@@ -1,3 +1,10 @@
+/**
+ * MojoPatch; a tool for updating data in the field.
+ *
+ * Please see the file LICENSE.txt in the source's root directory.
+ *
+ *  This file written by Ryan C. Gordon.
+ */
 
 #if !PLATFORM_MACOSX
 int ui_init_carbon(void) { return(0); } /* not implemented if not MacOS. */

@@ -1,9 +1,12 @@
+/**
+ * MojoPatch; a tool for updating data in the field.
+ *
+ * Please see the file LICENSE.txt in the source's root directory.
+ *
+ *  This file written by Ryan C. Gordon.
+ */
+
 /*
- *----------------------------------------------------------------------------
- *
- * mojopatch
- * Copyright (C) 2003  Ryan C. Gordon.
- *
  *----------------------------------------------------------------------------
  *
  * (Insert documentation here.)
@@ -17,7 +20,7 @@
  *   catastrophic bugs. Its method is brute-force, at best. Use at your
  *   own risk. Don't eat yellow snow.
  *
- *  Please see the file LICENSE in the root of the source tree.
+ *  Please see the file LICENSE.txt in the root of the source tree.
  *
  *   Send patches, improvements, suggestions, etc to Ryan:
  *    icculus@icculus.org.

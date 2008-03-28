@@ -1,3 +1,10 @@
+/**
+ * MojoPatch; a tool for updating data in the field.
+ *
+ * Please see the file LICENSE.txt in the source's root directory.
+ *
+ *  This file written by Ryan C. Gordon.
+ */
 
 #include <windows.h>
 #include <io.h>
