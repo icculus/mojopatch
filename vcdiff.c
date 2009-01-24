@@ -11,14 +11,11 @@
  * Written based on the RFC: http://www.faqs.org/rfcs/rfc3284.html
  */
 
-#include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
+#include <string.h>
+//#include <sys/types.h>
 
-#if (defined(_MSC_VER) && !defined(inline))
-#define inline _inline
-#endif
-
+#include "vcdiff.h"
 
 static inline uint32 swapui32(uint32 x)
 {
@@ -88,17 +85,42 @@ static int Read_ui32(vcdiff_io *io, uint32 *ui32)
 } /* Read_ui32 */
 
 
+static inline int Read_ui8(vcdiff_io *io, uint8 *ui8)
+{
+    return Read(io, ui8, sizeof (*ui8));
+} /* Read_ui8 */
+
+
+
 typedef struct
 {
-    vcdiff_io *src;
-    vcdiff_io *delta;
-    vcdiff_io *dst;
-    uint8 compressor;
-    uint32 tablelen;
-    uint8 *codetable;
+    /* allocator. */
     vcdiff_malloc malloc;
     vcdiff_free free;
     void *malloc_data;
+
+    /* i/o streams. */
+    vcdiff_io *iosrc;
+    vcdiff_io *iodelta;
+    vcdiff_io *iodst;
+
+    /* Data from header. */
+    uint8 compressor;
+    uint32 tablelen;
+    uint8 *codetable;
+
+    /* Data from current target window. */
+    uint8 deltaindicator;
+    uint32 srcdatalen;
+    uint32 encodinglen;
+    uint32 targetwinlen;
+    uint32 addrunlen;
+    uint32 instlen;
+    uint32 copylen;
+    uint8 *srcdata;
+    uint8 *copys;
+    uint8 *insts;
+    uint8 *addruns;
 } vcdiff_ctx;
 
 
@@ -110,16 +132,43 @@ static inline void *Malloc(const vcdiff_ctx *ctx, const int len)
 } /* Malloc */
 
 
-static inline void Free(const Context *ctx, void *ptr)
+static inline void Free(const vcdiff_ctx *ctx, void *ptr)
 {
     if (ptr != NULL) /* check for NULL in case of dumb free() impl. */
         ctx->free(ptr, ctx->malloc_data);
 } /* Free */
 
 
+static void free_delta_window_data(vcdiff_ctx *ctx)
+{
+    Free(ctx, ctx->copys);
+    Free(ctx, ctx->insts);
+    Free(ctx, ctx->addruns);
+    Free(ctx, ctx->srcdata);
+    ctx->copys = NULL;
+    ctx->insts = NULL;
+    ctx->addruns = NULL;
+    ctx->srcdata = NULL;
+    ctx->deltaindicator = 0;
+    ctx->srcdatalen = 0;
+    ctx->encodinglen = 0;
+    ctx->targetwinlen = 0;
+    ctx->addrunlen = 0;
+    ctx->instlen = 0;
+    ctx->copylen = 0;
+} /* free_delta_window_data */
+
+
+static int process_delta_window(vcdiff_ctx *ctx)
+{
+    /* !!! FIXME: write me. */
+    return 0;
+} /* process_delta_window */
+
+
 static int read_delta_header(vcdiff_ctx *ctx)
 {
-    vcdiff_io *io = ctx->delta;
+    vcdiff_io *io = ctx->iodelta;
     uint8 sig[5];
     if (!Read(io, sig, sizeof (sig)))
         return 0;
@@ -138,7 +187,7 @@ static int read_delta_header(vcdiff_ctx *ctx)
 
         if (has_compressor)
         {
-            if (!Read(io, &ctx->compressor, sizeof (compressor)))
+            if (!Read(io, &ctx->compressor, sizeof (ctx->compressor)))
                 return 0;
             return 0;  /* !!! FIXME: unsupported at the moment. */
         } /* if */
@@ -159,15 +208,12 @@ static int read_delta_header(vcdiff_ctx *ctx)
     return 1;
 } /* read_delta_header */
 
+
 static int _read_delta_window(vcdiff_ctx *ctx, const uint8 indicator)
 {
-    vcdiff_io *io = ctx->delta;
+    vcdiff_io *io = ctx->iodelta;
     const int source = (indicator & (1 << 0)) ? 1 : 0;
     const int target = (indicator & (1 << 1)) ? 1 : 0;
-    uint32 len = 0;
-    uint32 pos = 0;
-    vcdiff_io *srcio = NULL;
-    uint8 *srcdata = NULL;
 
     if ((indicator & 0xFC) != 0)
         return 0;  /* bits we weren't expecting are set. */
@@ -175,36 +221,73 @@ static int _read_delta_window(vcdiff_ctx *ctx, const uint8 indicator)
         return 0;  /* can't have both! */
     else if ((source) || (target))
     {
-        if (!Read_ui32(io, &len))
+        uint32 pos = 0;
+        if (!Read_ui32(io, &ctx->srcdatalen))
             return 0;
         else if (!Read_ui32(io, &pos))
             return 0;
-        srcio = (source) ? ctx->src : ctx->dst;
-        srcdata = (uint8 *) Malloc(ctx, len);
-        if (srcdata == NULL)
-            return 0;
-        if ( (!Seek(srcio, pos)) || (!Read(srcio, srcdata, len)) )
+        else
         {
-            Free(src, srcdata);
-            return 0;
-        } /* if */
+            vcdiff_io *srcio = (source) ? ctx->iosrc : ctx->iodst;
+            ctx->srcdata = (uint8 *) Malloc(ctx, ctx->srcdatalen);
+            if (ctx->srcdata == NULL)
+                return 0;
+            else if (!Seek(srcio, pos))
+                return 0;
+            else if (!Read(srcio, ctx->srcdata, ctx->srcdatalen))
+                return 0;
+        } /* else */
     } /* else if */
 
-    
+    if (!Read_ui32(io, &ctx->encodinglen))
+        return 0;
+    else if (!Read_ui32(io, &ctx->targetwinlen))
+        return 0;
+    else if (!Read_ui8(io, &ctx->deltaindicator))
+        return 0;
+    else if (!Read_ui32(io, &ctx->addrunlen))
+        return 0;
+    else if (!Read_ui32(io, &ctx->instlen))
+        return 0;
+    else if (!Read_ui32(io, &ctx->copylen))
+        return 0;
 
-    Free(ctx, srcdata);
+    if (ctx->deltaindicator != 0x00)   /* !!! FIXME: decompression bits. */
+        return 0;
+
+    if ((ctx->addruns = (uint8 *) Malloc(ctx, ctx->addrunlen)) == NULL)
+        return 0;
+    else if (!Read(io, ctx->addruns, ctx->addrunlen))
+        return 0;
+
+    else if ((ctx->insts = (uint8 *) Malloc(ctx, ctx->instlen)) == NULL)
+        return 0;
+    else if (!Read(io, ctx->insts, ctx->instlen))
+        return 0;
+
+    else if ((ctx->copys = (uint8 *) Malloc(ctx, ctx->copylen)) == NULL)
+        return 0;
+    else if (!Read(io, ctx->copys, ctx->copylen))
+        return 0;
+
+    return 1;  /* success. */
 } /* _read_delta_window */
+
 
 static int read_delta_window(vcdiff_ctx *ctx)
 {
-    vcdiff_io *io = ctx->delta;
+    vcdiff_io *io = ctx->iodelta;
     uint8 indicator;
-    int64 br = io->read(io->ctx, &indicator, sizeof (indicator));
+    int64 br = 0;
+
+    free_delta_window_data(ctx);
+
+    br = io->read(io->ctx, &indicator, sizeof (indicator));
     if (br == 0)
         return 0;  /* EOF. We're done! */
     else if (br == -1)
         return -1; /* Error. We're also done. */
-    return _read_delta_window(ctx, indicator);
+    return (_read_delta_window(ctx, indicator) ? 1 : -1);
 } /* read_delta_window */
 
 
@@ -216,7 +299,8 @@ static int _vcdiff(vcdiff_ctx *ctx)
     else
     {
         int rc;
-        while ((rc = read_delta_window(ctx)) == 1) { /* keep looping. */ }
+        while ((rc = read_delta_window(ctx)) == 1)
+            rc = process_delta_window(ctx);
         if (rc == -1)
             return 0;  /* error, not successful EOF. */
     } /* else */
@@ -238,6 +322,7 @@ int vcdiff(vcdiff_io *iosrc, vcdiff_io *iodelta, vcdiff_io *iodst,
     ctx.free = (f != NULL) ? f : internal_free;
     ctx.malloc_data = d;
     retval = _vcdiff(&ctx);
+    free_delta_window_data(&ctx);
     Free(&ctx, ctx.codetable);
     return retval;
 } /* vcdiff */
@@ -269,7 +354,7 @@ int vcdiff_fname(const char *src, const char *delta, const char *dst,
     fclose(iodst);
 
     if (!rc)
-        unlink(dst);
+        remove(dst);
 
     return rc;
 } /* vcdiff_fname */

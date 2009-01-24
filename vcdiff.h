@@ -1,18 +1,24 @@
 #ifndef _INCL_VCDIFF_H_
 #define _INCL_VCDIFF_H_
 
+#if !defined(VCDIFF_NO_STDIO)
 #include <stdio.h>
+#endif
 
-#ifdef _MSC_VER
-#define inline _inline
-typedef unsigned char uint8;
-typedef unsigned int uint32;
-typedef __int64 int64;
+#if defined(_MSC_VER)
+    #if !defined(inline)
+    #define inline _inline
+    #endif
+    typedef __int64 int64;
+    typedef unsigned __int64 uint64;
+    typedef unsigned __int32 uint32;
+    typedef unsigned __int8 uint8;
 #else
-#include <stdint.h>
-typedef uint8_t uint8;
-typedef uint32_t uint32;
-typedef int64_t int64;
+    #include <stdint.h>
+    typedef uint64_t uint64;
+    typedef int64_t int64;
+    typedef uint32_t uint32;
+    typedef uint8_t uint8;
 #endif
 
 /*
@@ -50,6 +56,7 @@ int vcdiff(vcdiff_io *iosrc, vcdiff_io *iodelta, vcdiff_io *iodst,
            vcdiff_malloc m, vcdiff_free f, void *d);
 
 
+#if !defined(VCDIFF_NO_STDIO)
 /* !!! FIXME: documentation. */
 /*
  *(fiosrc) and (fiodelta) need read access, (fiodst) needs read
@@ -57,6 +64,7 @@ int vcdiff(vcdiff_io *iosrc, vcdiff_io *iodelta, vcdiff_io *iodst,
  */
 int vcdiff_stdio(FILE *fiosrc, FILE *fiodelta, FILE *fiodst,
                  vcdiff_malloc m, vcdiff_free f, void *d);
+#endif
 
 
 /* !!! FIXME: documentation. */
